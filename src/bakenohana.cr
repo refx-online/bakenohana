@@ -6,7 +6,7 @@ require "./app/config"
 require "./app/log"
 require "./app/middleware"
 
-require "./app/routes/bancho"
+require "./app/routes/main_handler"
 
 require "./app/state/services"
 require "./app/state/sessions"

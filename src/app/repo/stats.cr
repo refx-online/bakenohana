@@ -10,46 +10,46 @@ struct StatsRepo
   property mode : Int8
 
   @[DB::Field(name: "tscore")]
-  property tscore : UInt64
+  property tscore : UInt64 = 0_u64
 
   @[DB::Field(name: "rscore")]
-  property rscore : UInt64
+  property rscore : UInt64 = 0_u64
 
   @[DB::Field(name: "pp")]
-  property pp : UInt32
+  property pp : UInt32 = 0_u32
 
   @[DB::Field(name: "plays")]
-  property plays : UInt32
+  property plays : UInt32 = 0_u32
 
   @[DB::Field(name: "playtime")]
-  property playtime : UInt32
+  property playtime : UInt32 = 0_u32
 
   @[DB::Field(name: "acc")]
-  property acc : Float32
+  property acc : Float32 = 0_f32
 
   @[DB::Field(name: "max_combo")]
-  property max_combo : UInt32
+  property max_combo : UInt32 = 0_u32
 
   @[DB::Field(name: "total_hits")]
-  property total_hits : UInt32
+  property total_hits : UInt32 = 0_u32
 
   @[DB::Field(name: "replay_views")]
-  property replay_views : UInt32
+  property replay_views : UInt32 = 0_u32
 
   @[DB::Field(name: "xh_count")]
-  property xh_count : UInt32
+  property xh_count : UInt32 = 0_u32
 
   @[DB::Field(name: "x_count")]
-  property x_count : UInt32
+  property x_count : UInt32 = 0_u32
 
   @[DB::Field(name: "sh_count")]
-  property sh_count : UInt32
+  property sh_count : UInt32 = 0_u32
 
   @[DB::Field(name: "s_count")]
-  property s_count : UInt32
+  property s_count : UInt32 = 0_u32
 
   @[DB::Field(name: "a_count")]
-  property a_count : UInt32
+  property a_count : UInt32 = 0_u32
 
   def self.fetch_one(user_id : Int32, mode : Int32) : self?
     Services.db.fetch_one(self, "select * from stats where id = ? and mode = ?", user_id, mode.to_i8)

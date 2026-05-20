@@ -22,6 +22,4 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /app/bin/bakenohana ./
 
-RUN mkdir -p .data/ava
-
 CMD ["./bakenohana"]
