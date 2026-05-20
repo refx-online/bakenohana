@@ -10,7 +10,16 @@ MODE_STR_LIST = {
   "ap!std",
   "ap!taiko",
   "ap!catch",
-  "ap!mania"
+  "ap!mania",
+  "cheat!std",
+  "cheat!taiko",
+  "cheat!catch",
+  "cheat!mania",
+  "cheatcheat!std",
+  "cheatcheat!taiko",
+  "cheatcheat!catch",
+  "cheatcheat!mania",
+  "td!std",
 }
 
 enum Gamemode : UInt8
@@ -26,34 +35,39 @@ enum Gamemode : UInt8
   AP_TAIKO
   AP_CATCH
   AP_MANIA
+  CHEAT_OSU
+  CHEAT_TAIKO
+  CHEAT_CATCH
+  CHEAT_MANIA
+  CHEAT_CHEAT_OSU
+  CHEAT_CHEAT_TAIKO
+  CHEAT_CHEAT_CATCH
+  CHEAT_CHEAT_MANIA
+  TOUCH_DEVICE_OSU
 
   def self.from_params(vn : UInt8, mods : Mods) : Gamemode
-    mode = vn
-    if mods.includes?(Mods::AUTOPILOT)
-      mode += 8
-    elsif mods.includes?(Mods::RELAX)
-      mode += 4
+    if mods.includes?(Mods::AUTOPILOT) && vn == 0
+      Gamemode::AP_OSU
+    elsif mods.includes?(Mods::RELAX) && vn != 3
+      Gamemode.new((vn + 4).to_u8)
+    else
+      Gamemode.new(vn)
     end
-    Gamemode.new(mode)
   end
 
   def self.valid_gamemodes : Array(Gamemode)
-    @@valid_gamemodes ||= begin
-      exc = {
-        Gamemode::RELAX_MANIA,
-        Gamemode::AUTOPILOT_TAIKO,
-        Gamemode::AUTOPILOT_CATCH,
-        Gamemode::AUTOPILOT_MANIA
-      }
-      Gamemode.values.reject { |gm| exc.includes?(gm) }
-    end
+    VALID_GAMEMODES
   end
 
   def as_vn : UInt8
-    self.value % 4
+    (self.value % 4).to_u8
   end
 
   def to_s : String
     MODE_STR_LIST[self.value]
   end
 end
+
+VALID_GAMEMODES = Gamemode.values.reject { |gm|
+  {Gamemode::RX_MANIA, Gamemode::AP_TAIKO, Gamemode::AP_CATCH, Gamemode::AP_MANIA}.includes?(gm)
+}

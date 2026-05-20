@@ -2,34 +2,35 @@ require "kemal"
 require "dotenv"
 Dotenv.load
 
-require "./app/config" # load early since im not calling this everytime
+require "./app/config"
 require "./app/log"
+require "./app/middleware"
 
 require "./app/routes/bancho"
-require "./app/routes/avatar"
 
 require "./app/state/services"
 require "./app/state/sessions"
+require "./app/state/redis"
+require "./app/state/pubsub"
 
-require "./app/init_router"
-
-# TODO: move these
 Services.init
+RedisService.init
 ChannelSession.prepare
+PubSub.start
 
 module Bakenohana
-  # "Kemal is ready to lead at" sybau
   Log.setup do |c|
     c.bind "kemal", Log::Severity::None, Log::IOBackend.new(IO::Memory.new)
   end
   Kemal.config.logging = false
+  Kemal.config.add_handler Metrics.new
 
   if port_str = ENV["PORT"]?
     Kemal.config.port = port_str.to_i
   end
 
-  init_routes # this initialize middleware too!
+  Cho.register_routes
 
-  rlog "hop on localhost:#{port_str}", Ansi::LBLUE
+  rlog "hop on localhost:#{ENV["PORT"]? || "3000"}", Ansi::LBLUE
   Kemal.run
 end

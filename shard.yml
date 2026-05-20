@@ -17,6 +17,9 @@ dependencies:
     github: crystal-lang/crystal-db
   mysql:
     github: crystal-lang/crystal-mysql
+  redis:
+    github: stefanwille/crystal-redis
+    version: "~> 2.9"
 
 crystal: '>= 1.16.3'
 

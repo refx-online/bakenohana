@@ -1,7 +1,6 @@
 require "db"
-require "../consts/priv"
 
-struct UserRepo # ngl playing with gulag gives me a habit of making these
+struct UserRepo
   include DB::Serializable
 
   @[DB::Field]
@@ -23,16 +22,16 @@ struct UserRepo # ngl playing with gulag gives me a habit of making these
   property country : String
 
   @[DB::Field(name: "silence_end")]
-  property silence_end : Int64
+  property silence_end : Int32
 
   @[DB::Field(name: "donor_end")]
-  property donor_end : Int64
+  property donor_end : Int32
 
   @[DB::Field(name: "creation_time")]
-  property creation_time : Int64
+  property creation_time : Int32
 
   @[DB::Field(name: "latest_activity")]
-  property latest_activity : Int64
+  property latest_activity : Int32
 
   @[DB::Field(name: "preferred_mode")]
   property preferred_mode : Int32
@@ -43,21 +42,19 @@ struct UserRepo # ngl playing with gulag gives me a habit of making these
   @[DB::Field(name: "userpage_content")]
   property userpage_content : String?
 
+  FIELDS = "id, name, safe_name, priv, pw_bcrypt, country, silence_end, donor_end, creation_time, latest_activity, preferred_mode, play_style, userpage_content"
+
   def self.fetch_one(id : Int32) : self?
-    Services.db.fetch_one(self, "select * from users where id = ?", id)
+    Services.db.fetch_one(self, "select #{FIELDS} from users where id = ?", id)
   end
 
   def self.fetch_one(name : String) : self?
-    Services.db.fetch_one(self, "select * from users where name = ?", name)
-  end
-
-  def self.fetch_all : Array(self)
-    Services.db.fetch_all(self, "select * from users")
+    Services.db.fetch_one(self, "select #{FIELDS} from users where safe_name = ?", name.downcase.gsub(/\s+/, "_"))
   end
 
   def self.update(id : Int32, name : String? = nil, safe_name : String? = nil, priv : Int32? = nil,
-                  pw_bcrypt : String? = nil, country : String? = nil, silence_end : Int64? = nil,
-                  donor_end : Int64? = nil, creation_time : Int64? = nil, latest_activity : Int64? = nil,
+                  pw_bcrypt : String? = nil, country : String? = nil, silence_end : Int32? = nil,
+                  donor_end : Int32? = nil, creation_time : Int32? = nil, latest_activity : Int32? = nil,
                   preferred_mode : Int32? = nil, play_style : Int32? = nil, userpage_content : String? = nil) : DB::ExecResult
 
     updates = {} of String => DB::Any
@@ -82,18 +79,5 @@ struct UserRepo # ngl playing with gulag gives me a habit of making these
 
     query = "update users set #{set_} where id = ?"
     Services.db.execute(query, values)
-  end
-
-  def self.create(name : String, email : String, pw_bcrypt : String, country : String) : self
-    safe_name = name.downcase.gsub(/\s+/, "_") # TODO: make new function?
-    curr_time = Time.utc.to_unix
-
-    Services.db.execute( # TODO: insert email
-      " insert into users (name, safe_name, pw_bcrypt, country, creation_time, latest_activity, priv)
-        values (?, ?, ?, ?, ?, ?, ?)  ",
-      name, safe_name, pw_bcrypt, country, curr_time, curr_time, Privileges::UNRESTRICTED.value # so no restrict lewl
-    )
-
-    fetch_one(name: name).not_nil!
   end
 end

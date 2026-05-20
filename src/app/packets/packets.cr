@@ -24,6 +24,10 @@ module Packets # thanks akatsuki
     ACCOUNT_RESTRICTED = 104
     PROTOCOL_VERSION = 75
     CHANNEL_INFO_END = 89
+    SILENCE_END = 92
+    USER_SILENCED = 94
+    USER_DM_BLOCKED = 100
+    TARGET_IS_SILENCED = 101
   end
 
   alias TypeArg = Tuple
@@ -189,6 +193,22 @@ module Packets # thanks akatsuki
   end
 
   # now to write server packet
+
+  def self.silence_end(delta : Int32) : Bytes
+    write(ServerPacket::SILENCE_END, {delta, OsuType::I32})
+  end
+
+  def self.user_silenced(user_id : Int32) : Bytes
+    write(ServerPacket::USER_SILENCED, {user_id, OsuType::I32})
+  end
+
+  def self.user_dm_blocked(target : String) : Bytes
+    write(ServerPacket::USER_DM_BLOCKED, { {"", "", target, 0}, OsuType::Message })
+  end
+
+  def self.target_is_silenced(target : String) : Bytes
+    write(ServerPacket::TARGET_IS_SILENCED, { {"", "", target, 0}, OsuType::Message })
+  end
 
   def self.login_reply(user_id : Int32) : Bytes
     write(ServerPacket::USER_ID, {user_id, OsuType::I32})

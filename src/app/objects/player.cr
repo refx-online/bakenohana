@@ -3,11 +3,12 @@ require "./status"
 require "./channel"
 
 require "../consts/priv"
+require "../consts/presence_filter"
 require "../packets/packets"
 require "../repo/relationship"
 require "../repo/user"
-
-require "../state/geoloc"
+require "../repo/stats"
+require "../state/redis"
 
 class Player
   getter token : String
@@ -23,6 +24,11 @@ class Player
   property status : PlayerStatus = PlayerStatus.new
 
   property priv : Privileges
+  property silence_end : Int64 = 0_i64
+  property pm_private : Bool = false
+  property away_msg : String? = nil
+  property pres_filter : PresenceFilter = PresenceFilter::All
+  property last_np : Tuple(Int32, Gamemode)? = nil
 
   @friends = Set(Int32).new
   @friends_mut = Mutex.new
@@ -38,11 +44,12 @@ class Player
 
   def initialize(
     @id : Int32,
-    @username : String, 
+    @username : String,
     @token : String,
     @ip : String,
     @login_time : Time,
-    @priv : Privileges
+    @priv : Privileges,
+    @silence_end : Int64 = 0_i64
   )
     @priv = priv
   end
@@ -73,17 +80,55 @@ class Player
     @friends_mut.synchronize { @friends.dup }
   end
 
-  def enrich_geo
-    if geo = Geoloc.fetch(@ip)
-      @status.latitude = geo.latitude.to_f32
-      @status.longitude = geo.longitude.to_f32
-      @status.country_code = geo.country_num.to_i32
-      @status.country = geo.country_acr.to_s
-    end
+  def remaining_silence : Int32
+    [0_i64, @silence_end - Time.utc.to_unix].max.to_i32
+  end
+
+  def silenced? : Bool
+    remaining_silence > 0
   end
 
   def update_offset(offset : Int32)
     @status.utc_offset = offset
+  end
+
+  def load_stats : Nil
+    row = StatsRepo.fetch_one(@id, @status.mode.value.to_i)
+    return unless row
+
+    @stats.pp          = row.pp.to_i32
+    @stats.acc         = row.acc.to_f64
+    @stats.plays       = row.plays.to_i32
+    @stats.tscore      = row.tscore.to_i64
+    @stats.rscore      = row.rscore.to_i64
+    @stats.max_combo   = row.max_combo.to_i32
+    @stats.total_hits  = row.total_hits.to_i32
+    @stats.global_rank = 0
+  end
+
+  def update_leaderboards : Nil
+    return if restricted
+
+    mode = @status.mode.value.to_i
+    pp   = @stats.pp.to_f64
+
+    RedisService.zadd(RedisService.leaderboard_key(mode), pp, @id)
+
+    unless @status.country.empty?
+      RedisService.zadd(RedisService.country_leaderboard_key(mode, @status.country), pp, @id)
+    end
+
+    global_rank  = RedisService.zrevrank(RedisService.leaderboard_key(mode), @id)
+    @stats.global_rank = global_rank ? (global_rank + 1).to_i32 : 0
+  end
+
+  def remove_from_leaderboards : Nil
+    Gamemode.values.each do |gm|
+      next unless Gamemode.valid_gamemodes.includes?(gm)
+      mode = gm.value.to_i
+      RedisService.zrem(RedisService.leaderboard_key(mode), @id)
+      RedisService.zrem(RedisService.country_leaderboard_key(mode, @status.country), @id) unless @status.country.empty?
+    end
   end
 
   def client_priv : ClientPrivileges # TODO: cache?
@@ -161,6 +206,8 @@ class Player
   end
 
   def logout
+    remove_from_leaderboards
+
     if h = @spectating
       h.remove_spectator(self)
     end

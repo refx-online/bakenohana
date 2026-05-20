@@ -18,6 +18,14 @@ module Config
   def self.map_api : String
     ENV["MAP_MIRROR_API"]? || ""
   end
+
+  def self.omajinai_url : String
+    ENV["OMAJINAI_URL"]? || "http://localhost:5000"
+  end
+
+  def self.redis_url : String
+    ENV["REDIS_URL"]? || "redis://localhost:6379"
+  end
 end
 
 # unhandled conf
