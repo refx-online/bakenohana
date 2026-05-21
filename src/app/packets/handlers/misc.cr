@@ -93,6 +93,18 @@ class ErrorReportPacket < BasePacket
   end
 end
 
+class IdentifyRefxPacket < BasePacket
+  def initialize(reader : BanchoPacketReader)
+    super(reader)
+    @current_lb = reader.read_i32
+  end
+
+  def handle(p : Player)
+    p.refx    = true
+    p.refx_lb = @current_lb
+  end
+end
+
 register(ClientPackets::REQUEST_STATUS_UPDATE,      RequestStatusUpdatePacket)
 register(ClientPackets::ERROR_REPORT,              ErrorReportPacket)
 register(ClientPackets::RECEIVE_UPDATES,           ReceiveUpdatesPacket)
@@ -100,7 +112,9 @@ register(ClientPackets::USER_PRESENCE_REQUEST_ALL, UserPresenceRequestAllPacket)
 register(ClientPackets::CHANNEL_PART,              ChannelPartPacket)
 register(ClientPackets::TOGGLE_BLOCK_NON_FRIEND_DMS, ToggleBlockNonFriendDMsPacket)
 register(ClientPackets::SET_AWAY_MESSAGE,          SetAwayMessagePacket)
+register(ClientPackets::REFX_LB,                  IdentifyRefxPacket)
 
 register_restricted(ClientPackets::REQUEST_STATUS_UPDATE,      RequestStatusUpdatePacket)
 register_restricted(ClientPackets::RECEIVE_UPDATES,            ReceiveUpdatesPacket)
 register_restricted(ClientPackets::USER_PRESENCE_REQUEST_ALL,  UserPresenceRequestAllPacket)
+register_restricted(ClientPackets::REFX_LB,                   IdentifyRefxPacket)

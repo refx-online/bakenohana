@@ -64,7 +64,7 @@ module Cho
                             \\. ..  . /
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       </pre>
-      see whos online: <a href="/online">https://c.#{domain}/v1/online</a><br>
+      see whos online: <a href="/api/v1/get_player_count">https://c.#{domain}/api/v1/get_player_count</a><br>
       </body>
       </html>
       HTML

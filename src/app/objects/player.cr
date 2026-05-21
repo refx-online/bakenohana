@@ -29,6 +29,8 @@ class Player
   property away_msg : String? = nil
   property pres_filter : PresenceFilter = PresenceFilter::All
   property last_np : Tuple(Int32, Gamemode)? = nil
+  property refx : Bool = false
+  property refx_lb : Int32 = 0
 
   @friends = Set(Int32).new
   @friends_mut = Mutex.new
@@ -319,6 +321,40 @@ class Player
     enqueue(data)
   end
 
+  def resolve_mode(mode : UInt8, mods : UInt32) : Tuple(UInt8, UInt32)
+    if @refx
+      case @refx_lb
+      when 1, 2 then return {12_u8, mods} # cheat/cheatselectedmod
+      when 5, 6 then return {16_u8, mods} # cheatcheat/cheatcheatselectedmod
+      end
+      return {mode, mods}
+    end
+
+    if (mods & Mods::TOUCHSCREEN.value) != 0
+      return {20_u8, mods}
+    end
+
+    if (mods & Mods::RELAX.value) != 0
+      if mode == 3
+        mods &= ~Mods::RELAX.value
+      elsif mode <= 2
+        mode = (mode + 4).to_u8
+      elsif mode >= 4 && mode <= 6
+        # already in rx range, keep as-is
+      else
+        mods &= ~Mods::RELAX.value
+      end
+    elsif (mods & Mods::AUTOPILOT.value) != 0
+      if mode == 0
+        mode = 8_u8
+      else
+        mods &= ~Mods::AUTOPILOT.value
+      end
+    end
+
+    {mode, mods}
+  end
+
   # spectating shit
 
   def add_spectator(player : Player) : Nil
@@ -351,6 +387,8 @@ class Player
 
     @spectators << player
     player.spectating = self
+
+    player.enqueue(Packets.user_stats(self))
 
     rlog "#{player.username} is now spectating #{@username}"
   end

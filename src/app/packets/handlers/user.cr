@@ -23,43 +23,33 @@ class ChangeActionPacket < BasePacket
     @mods      = reader.read_u32
     @mode      = reader.read_u8
     @map_id    = reader.read_i32
-
-    if (@mods & Mods::TOUCHSCREEN.value) != 0
-      @mode = 20_u8
-    elsif (@mods & Mods::RELAX.value) != 0
-      if @mode == 3
-        @mods &= ~Mods::RELAX.value
-      elsif @mode <= 2
-        @mode = (@mode + 4).to_u8
-      elsif @mode > 6
-        @mods &= ~Mods::RELAX.value
-      end
-    elsif (@mods & Mods::AUTOPILOT.value) != 0
-      if @mode == 0
-        @mode = 8_u8
-      else
-        @mods &= ~Mods::AUTOPILOT.value
-      end
-    end
   end
 
   def handle(p : Player) : Nil
+    prev_mode = p.status.mode
+
+    mode, mods = p.resolve_mode(@mode, @mods)
+
+    tag = case mode
+    when 4..7   then " [RX]"
+    when 8      then " [AP]"
+    when 12..15 then " [CHEAT]"
+    when 16..19 then " [CHEATCHEAT]"
+    when 20     then " [TD]"
+    else             " [VN]"
+    end
+
     p.status.action    = @action
     p.status.map_md5   = @map_md5
-    p.status.mods      = Mods.new(@mods)
-    p.status.mode      = Gamemode.new(@mode)
+    p.status.mods      = Mods.new(mods)
+    p.status.mode      = Gamemode.new(mode)
     p.status.map_id    = @map_id
-
-    tag = if (@mods & Mods::RELAX.value) != 0
-      " [RX]"
-    elsif (@mods & Mods::AUTOPILOT.value) != 0
-      " [AP]"
-    elsif (@mods & Mods::TOUCHSCREEN.value) != 0
-      " [TD]"
-    else
-      " [VN]"
-    end
     p.status.info_text = @info_text + tag
+
+    if p.status.mode != prev_mode
+      p.load_stats
+      p.update_leaderboards
+    end
 
     p.enqueue(Packets.user_stats(p)) unless p.restricted
   end

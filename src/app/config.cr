@@ -19,6 +19,10 @@ module Config
     ENV["MAP_MIRROR_API"]? || ""
   end
 
+  def self.discord_rank_webhook : String?
+    ENV["DISCORD_RANK_WEBHOOK"]?
+  end
+
   def self.omajinai_url : String
     ENV["OMAJINAI_URL"]? || "http://localhost:5000"
   end

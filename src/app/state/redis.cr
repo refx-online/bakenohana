@@ -40,6 +40,10 @@ module RedisService
     redis.zrevrank(key, member.to_s).as?(Int64)
   end
 
+  def self.publish(channel : String, message : String)
+    redis.publish(channel, message)
+  end
+
   def self.leaderboard_key(mode : Int32) : String
     "bancho:leaderboard:#{mode}"
   end

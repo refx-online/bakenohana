@@ -23,6 +23,7 @@ enum ClientPackets : UInt16
   USER_PRESENCE_REQUEST     = 97
   USER_PRESENCE_REQUEST_ALL = 98
   TOGGLE_BLOCK_NON_FRIEND_DMS = 99
+  REFX_LB                     = 138
 end
 
 abstract class BasePacket

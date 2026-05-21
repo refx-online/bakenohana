@@ -5,13 +5,17 @@ enum Privileges : Int32 # TODO: add more
   WHITELISTED     = 1 << 2
 
   SUPPORTER       = 1 << 4
+  PREMIUM         = 1 << 5
 
-  NOMINATOR       = 1 << 5
-  MODERATOR       = 1 << 6
-  ADMINISTRATOR   = 1 << 7
+  ALUMNI          = 1 << 7
 
-  PEPPY           = 1 << 8
-  DEVELOPER       = 1 << 9
+  TOURNEY_MANAGER = 1 << 10
+  NOMINATOR       = 1 << 11
+  MODERATOR       = 1 << 12
+  ADMINISTRATOR   = 1 << 13
+  DEVELOPER       = 1 << 14
+
+  PEPPY           = 1 << 15
 
   BOAT            = UNRESTRICTED | MODERATOR | ADMINISTRATOR | DEVELOPER
 end

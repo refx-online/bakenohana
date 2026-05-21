@@ -77,6 +77,8 @@ module PlayerSession
       @@players.values.count { |p| !p.restricted } + 1 # +1 for bot
     end
   end
+
+  def self.unrestricted : Set(Player)
     @@mutex.synchronize do
       res = @@players.values.reject(&.restricted).to_set
       res.add(@@bot)

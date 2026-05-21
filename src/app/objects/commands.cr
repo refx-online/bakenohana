@@ -1,10 +1,14 @@
 require "../state/performance"
 require "../consts/mods"
+require "../repo/beatmap"
+require "../state/redis"
+require "http/client"
+require "json"
 
 macro arg(name, type, required = true, default = nil)
 end
 
-macro command(name, description, *args, &block)
+macro command(name, description, *args, aliases = [] of String, &block)
   arg_names = [] of String
   arg_types = [] of String
   arg_required = [] of Bool
@@ -22,11 +26,11 @@ macro command(name, description, *args, &block)
   {% end %}
 
   # TODO: check for priv
-  @@commands[{{name}}] = {
-    {{description}},
-    arg_names,
-    ->(player : Player, parsed_args : Hash(String, String)) { {{block.body}} }
-  }
+  _proc = ->(player : Player, parsed_args : Hash(String, String)) { {{block.body}} }
+  @@commands[{{name}}] = { {{description}}, arg_names, _proc }
+  {% for a in aliases %}
+    @@commands[{{a}}] = { {{description}}, arg_names, _proc }
+  {% end %}
 end
 
 class CommandHandler
@@ -90,7 +94,7 @@ class CommandHandler
   end
 
   command "with", "recalculate last /np with given mods",
-    arg("mods", "string") do
+    arg("mods", "string"), aliases: ["w"] do
 
     np = player.last_np
     unless np
@@ -99,6 +103,102 @@ class CommandHandler
 
     map_id, mode = np
     CommandHandler.calc_with(player, map_id, mode, parsed_args["mods"]? || "NM")
+  end
+
+  command "map", "change ranked status of last /np'd map",
+    arg("status", "string"), arg("scope", "string") do
+
+    unless player.priv.includes?(Privileges::NOMINATOR)
+      return player.send_msg("you don't have permission to use this command.", PlayerSession.bot)
+    end
+
+    status_str = parsed_args["status"]?
+    scope_str  = parsed_args["scope"]?
+
+    status_map = {"rank" => RankedStatus::Ranked, "unrank" => RankedStatus::Pending,
+                  "love" => RankedStatus::Loved,  "qual"   => RankedStatus::Qualified}
+
+    unless status_str && scope_str && status_map.has_key?(status_str) && ["map", "set"].includes?(scope_str)
+      return player.send_msg("invalid syntax: #{Config.boat_prefix}map <rank/unrank/love/qual> <map/set>", PlayerSession.bot)
+    end
+
+    np = player.last_np
+    unless np
+      return player.send_msg("please /np a map first!", PlayerSession.bot)
+    end
+
+    map_id, _ = np
+    bmap = BeatmapRepo.fetch_one(map_id)
+    unless bmap
+      return player.send_msg("couldn't find that map in the database.", PlayerSession.bot)
+    end
+
+    new_status = status_map[status_str]
+
+    if scope_str == "map"
+      if bmap.ranked_status == new_status
+        return player.send_msg("#{bmap.embed} is already #{new_status}!", PlayerSession.bot)
+      end
+      BeatmapRepo.update_status(bmap.id, new_status)
+    else
+      BeatmapRepo.update_set_status(bmap.set_id, new_status)
+    end
+
+    RedisService.publish("forlorn:refresh_map", bmap.md5)
+
+    spawn CommandHandler.post_rank_webhook(player, bmap, new_status, scope_str == "set")
+
+    msg = scope_str == "map" ? "#{bmap.embed} has been #{new_status}." : "all maps in the set have been #{new_status}."
+    player.send_msg(msg, PlayerSession.bot)
+  end
+
+  def self.post_rank_webhook(player : Player, bmap : BeatmapRepo, status : RankedStatus, is_set : Bool)
+    webhook_url = Config.discord_rank_webhook
+    return unless webhook_url
+
+    color = case status
+    when RankedStatus::Ranked, RankedStatus::Approved, RankedStatus::Qualified then 0x6bceff
+    when RankedStatus::Loved                                                    then 0xff66aa
+    else                                                                             0x808080
+    end
+
+    length = bmap.total_length
+    fmt_length = if length >= 3600
+      "%02d:%02d:%02d" % {length // 3600, (length // 60) % 60, length % 60}
+    else
+      "%02d:%02d" % {length // 60, length % 60}
+    end
+
+    domain = Config.domain
+    scope_label = is_set ? "set" : "map"
+    title = "#{bmap.artist} - #{bmap.title} [#{bmap.version}] #{bmap.diff.round(2)}★"
+    description = "cs: #{bmap.cs} od: #{bmap.od} ar: #{bmap.ar} hp: #{bmap.hp} length: #{fmt_length}"
+
+    payload = {
+      "embeds" => [
+        {
+          "title"       => title,
+          "description" => description,
+          "url"         => "https://#{domain}/beatmaps/#{bmap.id}",
+          "color"       => color,
+          "author"      => {
+            "name"     => "#{player.username} changed #{scope_label} status to #{status}!",
+            "url"      => "https://#{domain}/u/#{player.id}",
+            "icon_url" => "https://a.#{domain}/#{player.id}",
+          },
+          "footer" => {"text" => "mapped by #{bmap.creator}"},
+          "image"  => {"url" => "https://b.#{domain}/cover/#{bmap.set_id}"},
+        },
+      ],
+    }
+
+    HTTP::Client.post(
+      webhook_url,
+      headers: HTTP::Headers{"Content-Type" => "application/json"},
+      body: payload.to_json
+    )
+  rescue ex
+    rlog "[webhook] #{ex.message}", Ansi::LRED
   end
 
   def self.calc_with(player : Player, map_id : Int32, mode : Gamemode, mods_str : String)
