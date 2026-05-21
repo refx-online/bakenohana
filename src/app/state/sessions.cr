@@ -45,19 +45,15 @@ module PlayerSession
     @@bot
   end
 
-  def self.players : Hash(String, Player)
-    @@mutex.synchronize { @@players.dup }
-  end
-
   def self.remove(token : String)
     @@mutex.synchronize do
       @@players.delete(token)
     end
   end
 
+  # bot yielded outside lock intentionally — bot is immutable after init
   def self.each(&block : Player, String ->)
     yield @@bot, @@bot.token
-    # HACK: to avoid holding lock during iter
     players_ = @@mutex.synchronize { @@players.dup }
     players_.each do |token, player|
       yield player, token
@@ -66,9 +62,7 @@ module PlayerSession
 
   def self.restricted : Set(Player)
     @@mutex.synchronize do
-      res = @@players.values.select(&.restricted).to_set
-      res.add(@@bot) # TODO: dont
-      res
+      @@players.values.select(&.restricted).to_set
     end
   end
 
@@ -91,8 +85,8 @@ module ChannelSession
   @@channels = Array(Channels).new
   @@mutex = Mutex.new
 
+  # HACK: dup to avoid holding lock during iter
   def self.each(&block : Channels ->)
-    # HACK: to avoid holding lock during iter
     channels_ = @@mutex.synchronize { @@channels.dup }
     channels_.each do |channel|
       yield channel
@@ -112,26 +106,8 @@ module ChannelSession
     end
   end
 
-  def self.[](index : Int32) : Channels
-    @@mutex.synchronize do
-      @@channels[index]
-    end
-  end
-
-  def self.[](index : Range(Int32, Int32)) : Array(Channels)
-    @@mutex.synchronize do
-      @@channels[index]
-    end
-  end
-
   def self.[](name : String) : Channels?
     get_by_name(name)
-  end
-
-  def self.[]?(index : Int32) : Channels?
-    @@mutex.synchronize do
-      @@channels[index]?
-    end
   end
 
   def self.[]?(name : String) : Channels?
@@ -158,12 +134,6 @@ module ChannelSession
     end
   end
 
-  def self.extend(channels : Array(Channels)) : Nil
-    @@mutex.synchronize do
-      @@channels.concat(channels)
-    end
-  end
-
   def self.remove(channel : Channels) : Nil
     @@mutex.synchronize do
       @@channels.delete(channel)
@@ -178,40 +148,26 @@ module ChannelSession
     @@mutex.synchronize { @@channels.empty? }
   end
 
-  def self.channels : Array(Channels)
-    @@mutex.synchronize { @@channels.dup }
-  end
-
   def self.auto_join : Array(Channels)
     @@mutex.synchronize do
       @@channels.select(&.auto_join)
     end
   end
 
-  def self.instances : Array(Channels)
-    @@mutex.synchronize do
-      @@channels.select(&.instance)
-    end
-  end
-
   def self.prepare : Nil
     rlog "fetching channels from sql.", Ansi::LCYAN
-    
-    channels_data = ChanRepo.fetch_all
-    
-    channels_data.each do |row|
-      channel = Channels.new(
+
+    ChanRepo.fetch_all.each do |row|
+      append(Channels.new(
         name: row.name,
         topic: row.topic,
         read_priv: Privileges.new(row.read_priv),
         write_priv: Privileges.new(row.write_priv),
         auto_join: row.auto_join,
         instance: false
-      )
-      
-      append(channel)
+      ))
     end
-    
+
     rlog "loaded #{size} channels from database.", Ansi::LGREEN
   end
 end

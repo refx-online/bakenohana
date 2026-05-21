@@ -1,4 +1,3 @@
-require "./cho_login"
 require "./cho_get"
 
 require "../objects/player"
@@ -7,6 +6,7 @@ require "../state/sessions"
 
 require "../packets/packets"
 require "../packets/reader"
+require "../packets/handlers/login"
 
 require "../repo/user"
 
@@ -26,7 +26,7 @@ module Cho
       token = env.request.headers["osu-token"]?
 
       if token.nil?
-        Cho.handle_login(env, ip)
+        LoginEvent.handle(env, ip)
         next
       end
 

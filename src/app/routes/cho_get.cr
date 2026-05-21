@@ -9,7 +9,7 @@ module Cho
       <!DOCTYPE html>
       <style>
       body {
-          background: black;
+          background: gray;
           color: gray;
           font-family: monospace;
           overflow-x: hidden;
