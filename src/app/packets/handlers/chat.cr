@@ -1,5 +1,6 @@
 require "../../state/sessions"
 require "../../objects/commands"
+require "../../objects/mp_commands"
 require "../../models/message"
 require "../../state/performance"
 require "../../consts/mods"
@@ -31,6 +32,9 @@ class SendMessagePublicPacket < BasePacket
     t_chan = if recipient == "#spectator"
       spectated_id = p.spectating.try(&.id) || p.id
       ChannelSession["#spec_#{spectated_id}"]
+    elsif recipient == "#multiplayer"
+      m = p.match
+      m ? ChannelSession["#multi_#{m.id}"] : nil
     else
       ChannelSession[recipient]
     end
@@ -48,6 +52,11 @@ class SendMessagePublicPacket < BasePacket
     if msg_text.size > 2000
       msg_text = "#{msg_text[0, 2000]}... (truncated)"
       p.enqueue(Packets.notification("Your message was truncated\n(exceeded 2000 characters)."))
+    end
+
+    if msg_text.starts_with?("!mp") && (m = p.match)
+      MpCommandHandler.handle(p, m, msg_text)
+      return
     end
 
     t_chan.send_msg(msg_text, sender: p)

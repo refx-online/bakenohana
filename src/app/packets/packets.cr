@@ -12,22 +12,38 @@ module Packets # thanks akatsuki
     VERSION_UPDATE = 19
     SPECTATOR_CANT_SPECTATE = 22
     NOTIFICATION = 24
+    UPDATE_MATCH = 26
+    NEW_MATCH = 27
+    DISPOSE_MATCH = 28
+    MATCH_JOIN_SUCCESS = 36
+    MATCH_JOIN_FAIL = 37
     FELLOW_SPECTATOR_JOINED = 42
     FELLOW_SPECTATOR_LEFT = 43
+    MATCH_START = 46
+    MATCH_SCORE_UPDATE = 48
+    MATCH_TRANSFER_HOST = 50
+    MATCH_ALL_PLAYERS_LOADED = 53
+    MATCH_PLAYER_FAILED = 57
+    MATCH_COMPLETE = 58
+    MATCH_SKIP = 61
     CHANNEL_JOIN = 64
     CHANNEL_INFO = 65
     CHANNEL_KICK = 66
     CHANNEL_AUTO_JOIN = 67
     PRIVILEGES = 71
     FRIENDS_LIST = 72
+    MATCH_PLAYER_SKIPPED = 81
     RESTART = 86
+    MATCH_INVITE = 88
     ACCOUNT_RESTRICTED = 104
     PROTOCOL_VERSION = 75
     CHANNEL_INFO_END = 89
+    MATCH_CHANGE_PASSWORD = 91
     SILENCE_END = 92
     USER_SILENCED = 94
     USER_DM_BLOCKED = 100
     TARGET_IS_SILENCED = 101
+    MATCH_ABORT = 106
   end
 
   alias TypeArg = Tuple
@@ -36,7 +52,7 @@ module Packets # thanks akatsuki
     I8; U8; I16; U16; I32; U32
     I64; U64; F32; F64
     String; I32List
-    Message; Channel; Match
+    Message; Channel; Match; ScoreFrame
     Raw
   end
 
@@ -133,6 +149,14 @@ module Packets # thanks akatsuki
       when OsuType::Channel
         write_channel payload_io, value.as?(Tuple(String, String, Int32)) || raise("expected channel tuple")
 
+      when OsuType::Match
+        tup = value.as?(Tuple(Match, Bool)) || raise("expected match tuple")
+        write_match payload_io, tup[0], tup[1]
+
+      when OsuType::ScoreFrame
+        sf = value.as?(ScoreFrame) || raise("expected scoreframe")
+        write_scoreframe payload_io, sf
+
       else
         raise "unhandled OsuType: #{typ}"
       end
@@ -190,6 +214,71 @@ module Packets # thanks akatsuki
     write_string(io, name)
     write_string(io, topic)
     io.write_bytes count.to_u16, IO::ByteFormat::LittleEndian
+  end
+
+  def self.write_match(io : IO, m : Match, send_pw : Bool = true)
+    io.write_bytes m.id.to_i16, IO::ByteFormat::LittleEndian
+    io.write_byte m.in_progress ? 1_u8 : 0_u8
+    io.write_byte 0_u8  # match type (always standard)
+    io.write_bytes m.mods.value, IO::ByteFormat::LittleEndian
+    write_string(io, m.name)
+
+    if m.passwd.empty?
+      io.write_byte 0x00_u8
+    elsif send_pw
+      write_string(io, m.passwd)
+    else
+      io.write_bytes 0x0B_u8
+      io.write_byte 0x00_u8
+    end
+
+    write_string(io, m.map_name)
+    io.write_bytes m.map_id, IO::ByteFormat::LittleEndian
+    write_string(io, m.map_md5)
+
+    m.slots.each { |s| io.write_byte s.status.value }
+    m.slots.each { |s| io.write_byte s.team.value }
+
+    m.slots.each do |s|
+      if s.status.has_player?
+        io.write_bytes s.player.not_nil!.id, IO::ByteFormat::LittleEndian
+      end
+    end
+
+    h = m.host
+    io.write_bytes (h ? h.id : 0), IO::ByteFormat::LittleEndian
+    io.write_byte m.mode.as_vn
+    io.write_byte m.win_condition.value
+    io.write_byte m.team_type.value
+    io.write_byte m.freemods ? 1_u8 : 0_u8
+
+    if m.freemods
+      m.slots.each { |s| io.write_bytes s.mods.value, IO::ByteFormat::LittleEndian }
+    end
+
+    io.write_bytes m.seed, IO::ByteFormat::LittleEndian
+  end
+
+  def self.write_scoreframe(io : IO, sf : ScoreFrame)
+    io.write_bytes sf.time, IO::ByteFormat::LittleEndian
+    io.write_byte sf.id.to_u8
+    io.write_bytes sf.num300, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.num100, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.num50, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.num_geki, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.num_katu, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.num_miss, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.total_score, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.max_combo, IO::ByteFormat::LittleEndian
+    io.write_bytes sf.current_combo, IO::ByteFormat::LittleEndian
+    io.write_byte sf.perfect ? 1_u8 : 0_u8
+    io.write_byte sf.current_hp
+    io.write_byte sf.tag_byte
+    io.write_byte sf.score_v2 ? 1_u8 : 0_u8
+    if sf.score_v2
+      io.write_bytes sf.combo_portion.not_nil!, IO::ByteFormat::LittleEndian
+      io.write_bytes sf.bonus_portion.not_nil!, IO::ByteFormat::LittleEndian
+    end
   end
 
   # now to write server packet
@@ -374,5 +463,73 @@ module Packets # thanks akatsuki
 
   def self.f_spectator_left(user_id : Int32) : Bytes
     write(ServerPacket::FELLOW_SPECTATOR_LEFT, {user_id, OsuType::I32})
+  end
+
+  def self.update_match(m : Match, send_pw : Bool = true) : Bytes
+    write(ServerPacket::UPDATE_MATCH, { {m, send_pw}, OsuType::Match })
+  end
+
+  def self.new_match(m : Match) : Bytes
+    write(ServerPacket::NEW_MATCH, { {m, true}, OsuType::Match })
+  end
+
+  def self.dispose_match(id : Int32) : Bytes
+    write(ServerPacket::DISPOSE_MATCH, {id, OsuType::I32})
+  end
+
+  def self.match_join_success(m : Match) : Bytes
+    write(ServerPacket::MATCH_JOIN_SUCCESS, { {m, true}, OsuType::Match })
+  end
+
+  def self.match_join_fail : Bytes
+    write(ServerPacket::MATCH_JOIN_FAIL, {Bytes.empty, OsuType::Raw})
+  end
+
+  def self.match_start(m : Match) : Bytes
+    write(ServerPacket::MATCH_START, { {m, true}, OsuType::Match })
+  end
+
+  def self.match_score_update(sf : ScoreFrame) : Bytes
+    write(ServerPacket::MATCH_SCORE_UPDATE, {sf, OsuType::ScoreFrame})
+  end
+
+  def self.match_transfer_host : Bytes
+    write(ServerPacket::MATCH_TRANSFER_HOST, {Bytes.empty, OsuType::Raw})
+  end
+
+  def self.match_all_players_loaded : Bytes
+    write(ServerPacket::MATCH_ALL_PLAYERS_LOADED, {Bytes.empty, OsuType::Raw})
+  end
+
+  def self.match_player_failed(slot_id : Int32) : Bytes
+    write(ServerPacket::MATCH_PLAYER_FAILED, {slot_id, OsuType::I32})
+  end
+
+  def self.match_complete : Bytes
+    write(ServerPacket::MATCH_COMPLETE, {Bytes.empty, OsuType::Raw})
+  end
+
+  def self.match_skip : Bytes
+    write(ServerPacket::MATCH_SKIP, {Bytes.empty, OsuType::Raw})
+  end
+
+  def self.match_player_skipped(user_id : Int32) : Bytes
+    write(ServerPacket::MATCH_PLAYER_SKIPPED, {user_id, OsuType::I32})
+  end
+
+  def self.match_invite(sender_name : String, sender_id : Int32, target_name : String, match_embed : String) : Bytes
+    msg = "Come join my game: #{match_embed}."
+    write(
+      ServerPacket::MATCH_INVITE,
+      { {sender_name, msg, target_name, sender_id}, OsuType::Message }
+    )
+  end
+
+  def self.match_change_password(passwd : String) : Bytes
+    write(ServerPacket::MATCH_CHANGE_PASSWORD, {passwd, OsuType::String})
+  end
+
+  def self.match_abort : Bytes
+    write(ServerPacket::MATCH_ABORT, {Bytes.empty, OsuType::Raw})
   end
 end

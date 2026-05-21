@@ -1,4 +1,6 @@
 require "../objects/player"
+require "../models/score_frame"
+require "../models/multi_match"
 require "./packets"
 
 enum ClientPackets : UInt16
@@ -13,13 +15,36 @@ enum ClientPackets : UInt16
   ERROR_REPORT              = 20
   CANT_SPECTATE             = 21
   SEND_PRIVATE_MESSAGE      = 25
+  PART_LOBBY                = 29
+  JOIN_LOBBY                = 30
+  CREATE_MATCH              = 31
+  JOIN_MATCH                = 32
+  PART_MATCH                = 33
+  MATCH_CHANGE_SLOT         = 38
+  MATCH_READY               = 39
+  MATCH_LOCK                = 40
+  MATCH_CHANGE_SETTINGS     = 41
+  MATCH_START               = 44
+  MATCH_SCORE_UPDATE        = 47
+  MATCH_COMPLETE            = 49
+  MATCH_CHANGE_MODS         = 51
+  MATCH_LOAD_COMPLETE       = 52
+  MATCH_NO_BEATMAP          = 54
+  MATCH_NOT_READY           = 55
+  MATCH_FAILED              = 56
+  MATCH_HAS_BEATMAP         = 59
+  MATCH_SKIP_REQUEST        = 60
   CHANNEL_JOIN              = 63
+  MATCH_TRANSFER_HOST       = 70
   FRIEND_ADD                = 73
   FRIEND_REMOVE             = 74
+  MATCH_CHANGE_TEAM         = 77
   CHANNEL_PART              = 78
   RECEIVE_UPDATES           = 79
   SET_AWAY_MESSAGE          = 82
   USER_STATS                = 85
+  MATCH_INVITE              = 87
+  MATCH_CHANGE_PASSWORD     = 90
   USER_PRESENCE_REQUEST     = 97
   USER_PRESENCE_REQUEST_ALL = 98
   TOGGLE_BLOCK_NON_FRIEND_DMS = 99
@@ -234,6 +259,65 @@ class BanchoPacketReader
       read_i32()
     )
   end
+
+  def read_match : MultiMatch
+    m = MultiMatch.new
+    m.id           = read_i16
+    m.in_progress  = read_i8 == 1_i8
+    m.powerplay    = read_i8
+    m.mods         = read_i32
+    m.name         = read_string
+    m.passwd       = read_string
+    m.map_name     = read_string
+    m.map_id       = read_i32
+    m.map_md5      = read_string
+
+    m.slot_statuses = Array(Int8).new(16) { read_i8 }
+    m.slot_teams    = Array(Int8).new(16) { read_i8 }
+
+    m.slot_statuses.each do |status|
+      if (status & 0b01111100) != 0
+        m.slot_ids << read_i32
+      end
+    end
+
+    m.host_id      = read_i32
+    m.mode         = read_i8
+    m.win_condition = read_i8
+    m.team_type    = read_i8
+    m.freemods     = read_i8 == 1_i8
+
+    if m.freemods
+      m.slot_mods = Array(Int32).new(16) { read_i32 }
+    end
+
+    m.seed = read_i32
+    m
+  end
+
+  def read_scoreframe : ScoreFrame
+    sf = ScoreFrame.new
+    sf.time          = read_i32
+    sf.id            = read_i8.to_i32
+    sf.num300        = read_u16
+    sf.num100        = read_u16
+    sf.num50         = read_u16
+    sf.num_geki      = read_u16
+    sf.num_katu      = read_u16
+    sf.num_miss      = read_u16
+    sf.total_score   = read_i32
+    sf.max_combo     = read_u16
+    sf.current_combo = read_u16
+    sf.perfect       = read_u8 == 1_u8
+    sf.current_hp    = read_u8
+    sf.tag_byte      = read_u8
+    sf.score_v2      = read_u8 == 1_u8
+    if sf.score_v2
+      sf.combo_portion = read_f64
+      sf.bonus_portion = read_f64
+    end
+    sf
+  end
 end
 
 require "./handlers/user"
@@ -241,3 +325,4 @@ require "./handlers/chat"
 require "./handlers/social"
 require "./handlers/spectate"
 require "./handlers/misc"
+require "./handlers/match"

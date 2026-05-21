@@ -1,6 +1,7 @@
 require "./stats"
 require "./status"
 require "./channel"
+require "./match"
 
 require "../consts/priv"
 require "../consts/presence_filter"
@@ -9,6 +10,7 @@ require "../repo/relationship"
 require "../repo/user"
 require "../repo/stats"
 require "../state/redis"
+require "../state/match_session"
 
 class Player
   getter token : String
@@ -31,6 +33,9 @@ class Player
   property last_np : Tuple(Int32, Gamemode)? = nil
   property refx : Bool = false
   property refx_lb : Int32 = 0
+
+  property match : Match? = nil
+  property in_lobby : Bool = false
 
   @friends = Set(Int32).new
   @friends_mut = Mutex.new
@@ -209,6 +214,8 @@ class Player
 
   def logout
     remove_from_leaderboards
+
+    leave_match if @match
 
     if h = @spectating
       h.remove_spectator(self)
@@ -421,5 +428,93 @@ class Player
 
     enqueue(Packets.spectator_left(player.id))
     rlog "#{player.username} is no longer spectating #{@username}"
+  end
+
+  # multiplayer
+
+  def join_match(match : Match, passwd : String) : Bool
+    if @match
+      enqueue(Packets.match_join_fail)
+      return false
+    end
+
+    if self != match.host
+      if passwd != match.passwd
+        rlog "#{@username} tried to join #{match.name} w/ wrong pw.", Ansi::LYELLOW
+        enqueue(Packets.match_join_fail)
+        return false
+      end
+
+      slot_id = match.get_free
+      if slot_id.nil?
+        rlog "#{@username} tried to join full match.", Ansi::LYELLOW
+        enqueue(Packets.match_join_fail)
+        return false
+      end
+    else
+      slot_id = 0
+    end
+
+    unless join_channel(match.chat)
+      rlog "#{@username} failed to join #{match.chat}.", Ansi::LYELLOW
+      return false
+    end
+
+    lobby = ChannelSession.get_by_name("#lobby")
+    if lobby && channels.includes?(lobby)
+      leave_channel(lobby)
+    end
+
+    slot = match.slots[slot_id]
+
+    if match.team_type == MatchTeamTypes::TeamVs || match.team_type == MatchTeamTypes::TagTeamVs
+      slot.team = MatchTeams::Red
+    end
+
+    slot.status = SlotStatus::NotReady
+    slot.player = self
+    @match = match
+
+    enqueue(Packets.match_join_success(match))
+    match.enqueue_state
+
+    true
+  end
+
+  def leave_match : Nil
+    m = @match
+    unless m
+      return
+    end
+
+    slot = m.get_slot(self)
+    return unless slot
+
+    new_status = slot.status == SlotStatus::Locked ? SlotStatus::Locked : SlotStatus::Open
+    slot.reset(new_status)
+
+    leave_channel(m.chat)
+
+    if m.slots.all?(&.empty?)
+      rlog "Match #{m.name} (#{m.id}) is now empty, disposing."
+      MatchSession.remove(m)
+
+      lobby = ChannelSession.get_by_name("#lobby")
+      lobby.try(&.enqueue(Packets.dispose_match(m.id)))
+    else
+      if self.same?(m.host)
+        m.slots.each do |s|
+          if s.player
+            m.host_id = s.player.not_nil!.id
+            m.host.try(&.enqueue(Packets.match_transfer_host))
+            break
+          end
+        end
+      end
+
+      m.enqueue_state
+    end
+
+    @match = nil
   end
 end

@@ -21,10 +21,14 @@ Copy `.env_` to `.env` and fill in values before running. Required vars:
 |-----|---------|
 | `PORT` | HTTP listen port |
 | `DB_HOST/PORT/NAME/USER/PASS` | MySQL connection |
+| `REDIS_URL` | Redis connection URL (default `redis://localhost:6379`) |
+| `DOMAIN` | Public domain name (used in webhook URLs) |
 | `AVA_PATH` | Directory for avatar images (relative to cwd) |
 | `BOAT_PREFIX` | Bot command prefix (default `?`) |
 | `MAP_MIRROR_API` | Base URL for beatmap downloads |
 | `OSU_API_KEY` | osu! API key |
+| `OMAJINAI_URL` | Score server base URL (default `http://localhost:5000`) |
+| `DISCORD_RANK_WEBHOOK` | Optional Discord webhook for map rank changes |
 | `DEBUG` | Set `true` to enable `rlog` output |
 
 ## Architecture
@@ -78,3 +82,33 @@ Repo structs (`src/app/repo/`) include `DB::Serializable` and expose class metho
 ### Gamemode encoding
 
 `Gamemode` (`src/app/consts/mode.cr`) extends the 4 vanilla modes with Relax (+4) and Autopilot (+8) variants. `ChangeActionPacket` remaps the client's raw mode+mods into this internal enum. `as_vn` strips the modifier offset back to 0–3 for wire encoding.
+
+### Redis
+
+`RedisService` (`src/app/state/redis.cr`) holds two connections: one for commands, one dedicated to pub/sub (a subscribed Redis connection can't issue other commands). Leaderboards are sorted sets keyed `bancho:leaderboard:<mode>` and `bancho:leaderboard:<mode>:<country>`, scored by pp. Rank is derived via `ZREVRANK`.
+
+`PubSub` (`src/app/state/pubsub.cr`) subscribes to four channels published by the external score server:
+
+| Channel | Payload | Effect |
+|---------|---------|--------|
+| `refx:notify` | `user_id\|message` | Send notification packet to player |
+| `refx:restrict` | `user_id\|reason` | Strip `UNRESTRICTED`, send restricted packet, remove from leaderboards |
+| `refx:refresh_stats` | `user_id` | Reload stats from DB, update leaderboards, broadcast stats packet |
+| `refx:recalculate` | `user_id` | Same as refresh_stats, then DM player via bot |
+
+The `map` command publishes `forlorn:refresh_map` with the beatmap MD5 to notify the score server of a status change.
+
+### Bot commands
+
+`CommandHandler` (`src/app/objects/commands.cr`) uses a `command` macro to register bot commands. Commands are triggered when a chat message starts with `Config.boat_prefix` (default `?`).
+
+```crystal
+command "name", "description",
+  arg("argname", "type", required, default),
+  aliases: ["alias"],
+  priv: Privileges::MODERATOR do
+  # `player` and `parsed_args` are in scope
+end
+```
+
+Privilege-gated commands (`priv:`) are hidden from `?help` output and return "unknown command" to unprivileged players. The `command` macro stores entries in `@@commands` as `{description, arg_names, proc, required_priv?}`.

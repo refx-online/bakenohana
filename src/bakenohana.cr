@@ -13,6 +13,7 @@ require "./app/state/services"
 require "./app/state/sessions"
 require "./app/state/redis"
 require "./app/state/pubsub"
+require "./app/state/match_session"
 
 Services.init
 RedisService.init
