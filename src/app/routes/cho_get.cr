@@ -10,7 +10,7 @@ module Cho
       <style>
       body {
           background: gray;
-          color: gray;
+          color: black;
           font-family: monospace;
           overflow-x: hidden;
       }
