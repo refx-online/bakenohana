@@ -72,7 +72,11 @@ module PlayerSession
     end
   end
 
-  def self.unrestricted : Set(Player)
+  def self.unrestricted_count : Int32
+    @@mutex.synchronize do
+      @@players.values.count { |p| !p.restricted } + 1 # +1 for bot
+    end
+  end
     @@mutex.synchronize do
       res = @@players.values.reject(&.restricted).to_set
       res.add(@@bot)

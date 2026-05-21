@@ -44,6 +44,10 @@ struct UserRepo
 
   FIELDS = "id, name, safe_name, priv, pw_bcrypt, country, silence_end, donor_end, creation_time, latest_activity, preferred_mode, play_style, userpage_content"
 
+  def self.fetch_count : Int64
+    Services.db.fetch_val("select count(*) from users").as(Int64)
+  end
+
   def self.fetch_one(id : Int32) : self?
     Services.db.fetch_one(self, "select #{FIELDS} from users where id = ?", id)
   end

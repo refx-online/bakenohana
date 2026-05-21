@@ -7,6 +7,7 @@ require "./app/log"
 require "./app/middleware"
 
 require "./app/routes/main_handler"
+require "./app/routes/api_v1"
 
 require "./app/state/services"
 require "./app/state/sessions"
@@ -30,6 +31,7 @@ module Bakenohana
   end
 
   Cho.register_routes
+  Api::V1.register_routes
 
   rlog "hop on localhost:#{ENV["PORT"]? || "3000"}", Ansi::LBLUE
   Kemal.run
