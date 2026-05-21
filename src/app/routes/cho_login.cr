@@ -42,7 +42,7 @@ module Cho
 
     hwid_parts = adapters_str.split(':', remove_empty: true)
 
-    raise "login: bad adapters" unless hwid_parts.size >= 4
+    raise "login: bad adapters" unless hwid_parts.size >= 5
 
     LoginData.new(
       username:            username,
@@ -51,10 +51,10 @@ module Cho
       utc_offset:          utc_offset,
       display_city:        display_city,
       adapters_str:        adapters_str,
-      adapters_md5:        hwid_parts[1],
-      uninstall_md5:       hwid_parts[2],
-      disk_signature_md5:  hwid_parts[3],
       osu_path_md5:        hwid_parts[0],
+      adapters_md5:        hwid_parts[2],
+      uninstall_md5:       hwid_parts[3],
+      disk_signature_md5:  hwid_parts[4],
       pm_private:          pm_private
     )
   end

@@ -64,9 +64,7 @@ module Cho
                             \\. ..  . /
       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
       </pre>
-      see whos online: <a href="/online">https://c.#{domain}/online</a><br>
-      ongoing matches: <a href="/matches">https://c.#{domain}/matches</a><br>
-      web: <a href="https://#{domain}">https://#{domain}</a><br>
+      see whos online: <a href="/online">https://c.#{domain}/v1/online</a><br>
       </body>
       </html>
       HTML

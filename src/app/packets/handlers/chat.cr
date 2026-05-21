@@ -4,7 +4,12 @@ require "../../models/message"
 require "../../state/performance"
 require "../../consts/mods"
 
-NP_REGEX = /\x01ACTION is (?:listening to|playing|watching|editing) \[https?:\/\/osu\.ppy\.sh\/b\/(\d+)/
+require "../../config"
+
+NP_REGEX = Regex.new(
+  "^\\x01ACTION is (?:playing|editing|watching|listening to) " \
+  "\\[https?://osu\\.(?:ppy\\.sh|#{Regex.escape(Config.domain)})/beatmapsets/(?<sid>\\d{1,10})#/?(?:osu|taiko|fruits|mania)?/(?<bid>\\d{1,10})"
+)
 
 class SendMessagePublicPacket < BasePacket
   def initialize(reader : BanchoPacketReader)
@@ -73,7 +78,7 @@ class SendMessagePrivatePacket < BasePacket
 
     if target == PlayerSession.bot
       if m = NP_REGEX.match(msg_text)
-        map_id = m[1].to_i
+        map_id = m["bid"].to_i
         mode   = p.status.mode
         p.last_np = {map_id, mode}
 

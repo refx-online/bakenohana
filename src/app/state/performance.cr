@@ -37,23 +37,20 @@ class OsuPerformanceCalculator
       mods |= Mods::RELAX
     end
 
-    body = JSON.build do |j|
-      j.object do
-        j.field "beatmap_id", beatmap_id
-        j.field "mode", mode.as_vn.to_u32
-        j.field "mods", mods.value unless mods.value == 0
-        j.field "max_combo", max_combo if max_combo
-        j.field "accuracy", accuracy
-        j.field "miss_count", miss_count if miss_count
-        j.field "legacy_score", legacy_score if legacy_score
-      end
+    params = HTTP::Params.build do |p|
+      p.add "beatmap_id", beatmap_id.to_s
+      p.add "mode", mode.as_vn.to_u32.to_s
+      p.add "mods", mods.value.to_s
+      p.add "max_combo", max_combo.to_s if max_combo
+      p.add "accuracy", accuracy.to_s
+      p.add "miss_count", miss_count.to_s if miss_count
+      p.add "legacy_score", legacy_score.to_s if legacy_score
     end
 
     uri = URI.parse(Config.omajinai_url)
-    response = HTTP::Client.post(
-      "#{Config.omajinai_url}/calculate",
-      headers: HTTP::Headers{"Content-Type" => "application/json"},
-      body: body
+    response = HTTP::Client.get(
+      "#{Config.omajinai_url}/calculate?#{params}",
+      headers: HTTP::Headers{"Content-Type" => "application/json"}
     )
 
     raise "omajinai returned #{response.status_code}" unless response.status_code == 200
