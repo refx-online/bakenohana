@@ -8,7 +8,7 @@ require "json"
 macro arg(name, type, required = true, default = nil)
 end
 
-macro command(name, description, *args, aliases = [] of String, &block)
+macro command(name, description, *args, aliases = [] of String, priv = nil, &block)
   arg_names = [] of String
   arg_types = [] of String
   arg_required = [] of Bool
@@ -25,21 +25,35 @@ macro command(name, description, *args, aliases = [] of String, &block)
     {% end %}
   {% end %}
 
-  # TODO: check for priv
   _proc = ->(player : Player, parsed_args : Hash(String, String)) { {{block.body}} }
-  @@commands[{{name}}] = { {{description}}, arg_names, _proc }
-  {% for a in aliases %}
-    @@commands[{{a}}] = { {{description}}, arg_names, _proc }
+  {% if priv == nil %}
+    _priv = nil.as(Privileges?)
+  {% else %}
+    _priv = {{priv}}.as(Privileges?)
+  {% end %}
+  @@commands[{{name}}] = { {{description}}, arg_names, _proc, _priv }
+  {% if !aliases.empty? %}
+    @@command_aliases[{{name}}] = [{% for a in aliases %}{{a}}, {% end %}] of String
+    {% for a in aliases %}
+      @@commands[{{a}}] = { {{description}}, arg_names, _proc, _priv }
+      @@alias_set.add({{a}})
+    {% end %}
   {% end %}
 end
 
 class CommandHandler
-  @@commands = {} of String => {String, Array(String), Proc(Player, Hash(String, String), Nil)}
+  @@commands = {} of String => {String, Array(String), Proc(Player, Hash(String, String), Nil), Privileges?}
+  @@alias_set = Set(String).new
+  @@command_aliases = {} of String => Array(String)
 
   command "help", "show available commands" do
     help_text = ["available bot commands:"]
-    @@commands.each do |cmd, (desc, args, _)|
-      usage = args.empty? ? cmd : "#{cmd} #{args.map { |a| "<#{a}>" }.join(" ")}"
+    @@commands.each do |cmd, (desc, args, _, req_priv)|
+      next if @@alias_set.includes?(cmd)
+      next if req_priv && !player.priv.includes?(req_priv)
+      aliases = @@command_aliases[cmd]?
+      alias_str = aliases && !aliases.empty? ? " (alias: #{aliases.join(", ")})" : ""
+      usage = args.empty? ? "#{cmd}#{alias_str}" : "#{cmd}#{alias_str} #{args.map { |a| "<#{a}>" }.join(" ")}"
       help_text << "#{Config.boat_prefix}#{usage} - #{desc}"
     end
     player.send_msg(help_text.join('\n'), PlayerSession.bot)
@@ -106,11 +120,7 @@ class CommandHandler
   end
 
   command "map", "change ranked status of last /np'd map",
-    arg("status", "string"), arg("scope", "string") do
-
-    unless player.priv.includes?(Privileges::NOMINATOR)
-      return player.send_msg("you don't have permission to use this command.", PlayerSession.bot)
-    end
+    arg("status", "string"), arg("scope", "string"), priv: Privileges::NOMINATOR do
 
     status_str = parsed_args["status"]?
     scope_str  = parsed_args["scope"]?
@@ -221,7 +231,15 @@ class CommandHandler
     raw_args = parts[1..-1]? || [] of String
 
     if cmd_info = @@commands[cmd_name]?
-      description, arg_names, handler = cmd_info
+      description, arg_names, handler, req_priv = cmd_info
+
+      if req_priv && !player.priv.includes?(req_priv)
+        return player.send_msg(
+          "unknown command: #{cmd_name}\n" +
+          "type '#{Config.boat_prefix}help' for available commands.",
+          PlayerSession.bot
+        )
+      end
 
       parsed_args = {} of String => String
 

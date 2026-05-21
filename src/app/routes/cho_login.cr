@@ -19,7 +19,7 @@ require "../log"
 WELCOME_MESSAGE = %q(
         Welcome aboard.
         Running bakenohana v1.0.0
-)
+ )
 
 module Cho
   def self.parse_login(body : Bytes) : LoginData
