@@ -41,6 +41,7 @@ module Bakenohana
       sleep OSU_CLIENT_MIN_PING_INTERVAL // 3
       now = Time.utc
       PlayerSession.each do |player, _token|
+        next if player.id == 1
         if (now - player.last_recv_time).total_seconds > OSU_CLIENT_MIN_PING_INTERVAL
           rlog "Auto-dced #{player.username} (ghost).", Ansi::LMAGENTA
           player.logout
