@@ -34,6 +34,21 @@ module Bakenohana
   Cho.register_routes
   Api::V1.register_routes
 
+  OSU_CLIENT_MIN_PING_INTERVAL = 300
+
+  spawn do
+    loop do
+      sleep OSU_CLIENT_MIN_PING_INTERVAL // 3
+      now = Time.utc
+      PlayerSession.each do |player, _token|
+        if (now - player.last_recv_time).total_seconds > OSU_CLIENT_MIN_PING_INTERVAL
+          rlog "Auto-dced #{player.username} (ghost).", Ansi::LMAGENTA
+          player.logout
+        end
+      end
+    end
+  end
+
   rlog "hop on localhost:#{ENV["PORT"]? || "3000"}", Ansi::LBLUE
   Kemal.run
 end
