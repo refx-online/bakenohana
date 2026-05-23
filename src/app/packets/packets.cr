@@ -363,7 +363,7 @@ module Packets # thanks akatsuki
     rscore = stats.rscore
 
     # TODO: why? imagine if someone cheated their way to get this pp value
-    if pp > 65535
+    if pp > 65535 || (player.refx && pp > Int32::MAX)
       rscore = pp
       pp = 0
     end
