@@ -1,4 +1,4 @@
-FROM crystallang/crystal:latest AS builder
+FROM crystallang/crystal:1.13.3 AS builder
 WORKDIR /app
 
 COPY shard.yml shard.lock* ./
