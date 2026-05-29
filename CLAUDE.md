@@ -23,7 +23,6 @@ Copy `.env_` to `.env` and fill in values before running. Required vars:
 | `DB_HOST/PORT/NAME/USER/PASS` | MySQL connection |
 | `REDIS_URL` | Redis connection URL (default `redis://localhost:6379`) |
 | `DOMAIN` | Public domain name (used in webhook URLs) |
-| `AVA_PATH` | Directory for avatar images (relative to cwd) |
 | `BOAT_PREFIX` | Bot command prefix (default `?`) |
 | `MAP_MIRROR_API` | Base URL for beatmap downloads |
 | `OSU_API_KEY` | osu! API key |
@@ -35,59 +34,54 @@ Copy `.env_` to `.env` and fill in values before running. Required vars:
 
 bakenohana is a Crystal implementation of the osu! Bancho protocol — the real-time TCP-over-HTTP server that the osu! client talks to.
 
-### Subdomain routing
+### Request handling
 
-Kemal handles all HTTP, but `Middleware::Dispatcher` (`src/app/middleware.cr`) intercepts every request and dispatches by subdomain before Kemal's own router runs. Routes are registered in `init_routes` (`src/app/init_router.cr`):
+Kemal handles all HTTP. Routes are registered at startup in `bakenohana.cr` via `Cho.register_routes` and `Api::V1.register_routes`. A `Metrics` Kemal handler (`src/app/middleware.cr`) logs request timing and status for every request.
 
-- `c`, `ce`, `c4`, `c5`, `c6` → `Cho` (Bancho protocol)
-- `a` → `Ava` (avatar serving)
-- `osu` → `Web` (registration, map redirects)
+`POST /` is the single endpoint for all Bancho client communication. Requests without `osu-token` = login; with token = packet loop.
 
-### Login / packet loop (Cho)
+- **Login path** (`src/app/packets/handlers/login.cr`): parses the 3-line login body, authenticates via `Auth` (bcrypt + hardware ID conflict check via `UserHashRepo`), creates a `Player`, runs `burst` to build the initial packet payload (presence, stats, channels, friends list, silence end), and returns it with a `cho-token` header. Logs the login via `IngameLoginRepo`.
+- **Packet path** (`src/app/routes/main_handler.cr`): looks up the player by token, feeds the body through `BanchoPacketReader` using `PACKET_MAP` (or `RESTRICTED_PACKET_MAP` for restricted players), calls `handle(player)` on each packet, updates `last_recv_time`, then flushes `player.dequeue` as the response body.
 
-`POST /` on a bancho subdomain is the single endpoint for all client communication. The osu! client sends requests without an `osu-token` header on first contact (login), and with one on every subsequent poll.
-
-- **Login path**: parses the 3-line login body, authenticates via `Auth` (bcrypt), creates a `Player`, builds a burst of server packets (presence, stats, channels, friends list), and returns them with a `cho-token` header.
-- **Packet path**: reads the token, looks up the `Player` in `PlayerSession`, feeds the body through `BanchoPacketReader`, calls `handle(player)` on each parsed packet, then flushes `player.dequeue` as the response body.
+A background fiber in `bakenohana.cr` checks every 100s and calls `player.logout` on any player whose `last_recv_time` is >300s ago (ghost disconnect).
 
 ### Packet system
 
-`BanchoPacketReader` (`src/app/packets/reader.cr`) is an `Iterator(BasePacket)` that walks a `Bytes` slice, reads the 7-byte header (id u16 + pad + len u32), and returns the registered `BasePacket` subclass for that id. Unknown packet ids are skipped.
+`BanchoPacketReader` (`src/app/packets/reader.cr`) is an `Iterator(BasePacket)` that walks a `Bytes` slice, reads the 7-byte header (id u16 + pad + len u32), and dispatches to the registered `BasePacket` subclass. Unknown ids are skipped. Packet classes are registered with the `register` macro at the bottom of `reader.cr`; each reads its fields in `initialize` and acts on a `Player` in `handle`.
 
-Packet classes are registered with the `register` macro at the bottom of `reader.cr`. Each class reads its own fields from the reader in `initialize`, then acts on a `Player` in `handle`.
-
-Server-to-client packets are built by `Packets.write` (`src/app/packets/packets.cr`), which takes a `ServerPacket` enum value and typed `{value, OsuType}` tuples, serialises them little-endian, and returns a `Bytes` slice. Convenience methods (`Packets.user_stats`, `Packets.send_message`, etc.) wrap `write`.
+Server-to-client packets are built by `Packets.write` (`src/app/packets/packets.cr`), which takes a `ServerPacket` enum value and typed `{value, OsuType}` tuples, serialises them little-endian, and returns `Bytes`. Convenience methods (`Packets.user_stats`, `Packets.send_message`, etc.) wrap `write`.
 
 ### In-memory state
 
-All live state is in two modules in `src/app/state/sessions.cr`:
+- **`PlayerSession`** (`src/app/state/sessions.cr`) — `Hash(String, Player)` keyed by token, plus a hardcoded bot player (`id: 1, username: "boat"`). All access is mutex-guarded. Lookup by token, id, or username.
+- **`ChannelSession`** (`src/app/state/sessions.cr`) — `Array(Channels)` loaded from DB at startup, plus dynamically created instance channels (`#spec_<id>`, `#multi_<id>`). Instance channels are removed when their last member leaves.
+- **`MatchSession`** (`src/app/state/match_session.cr`) — fixed-size `Array(Match?)` of 64 slots, indexed by match id. All access is mutex-guarded.
 
-- **`PlayerSession`** — `Hash(String, Player)` keyed by token, plus a hardcoded bot player. All access is mutex-guarded. Lookup by token, id, or username.
-- **`ChannelSession`** — `Array(Channels)` loaded from the DB at startup (`ChannelSession.prepare`), plus dynamically created instance channels (spectator: `#spec_<id>`, multiplayer: `#multi_<id>`). Instance channels are removed when their last member leaves.
+`Player` owns a mutex-protected `IO::Memory` queue. Packets are written with `enqueue(Bytes)` and consumed atomically with `dequeue : Bytes`.
 
-`Player` (`src/app/objects/player.cr`) owns a mutex-protected `IO::Memory` queue. Packets are written to it with `enqueue(Bytes)` and consumed atomically with `dequeue : Bytes`.
+`player.refx` (Bool) marks a re;fx custom client user. `player.refx_lb` (Int32) selects their leaderboard variant (0 = vanilla, 1/2 = cheat, 5/6 = cheatcheat). `Player#resolve_mode` uses these to remap the wire mode byte before stats lookups. `Packets.user_stats` allows pp values above `Int32::MAX` for refx players by routing them through `rscore`.
 
 ### Repo layer
 
-Repo structs (`src/app/repo/`) include `DB::Serializable` and expose class methods (`fetch_one`, `fetch_all`, `create`, `update`) that call `Services.db` directly. `Services.db` is a thin wrapper around `crystal-db` initialised once at startup.
+Repo structs (`src/app/repo/`) include `DB::Serializable` and expose class methods (`fetch_one`, `fetch_all`, `create`, `update`) that call `Services.db` directly. `Services.db` is a `Database` wrapper around `crystal-db` initialised once at startup.
+
+### Gamemode encoding
+
+`Gamemode` (`src/app/consts/mode.cr`) is a `UInt8` enum extending the 4 vanilla modes (0–3) with: Relax (4–7), Autopilot (8–11), Cheat (12–15), CheatCheat (16–19), TouchDevice (20). `as_vn` returns `value % 4` to strip the variant offset back to 0–3 for wire encoding. `VALID_GAMEMODES` excludes RX_MANIA, AP_TAIKO, AP_CATCH, AP_MANIA.
 
 ### Geolocation
 
-`Geoloc` (`src/app/state/geoloc.cr`) is an LRU cache (256 entries) backed by `ip-api.com`. Called during login to set lat/lon/country on the player's status.
+`Geoloc` (`src/app/state/geoloc.cr`) resolves country/lat/lon at login. Priority: `CF-IPCountry` header → `X-Country-Code` header → `ip-api.com` HTTP call. Private/empty IPs skip the external call and return `"xx"`.
 
 ### Performance calculation
 
 `OsuPerformanceCalculator` (`src/app/state/performance.cr`) calls into `librosu_ffi.so` via Crystal's C FFI. The `.so` must be present at `src/app/lib/native/librosu_ffi.so` at compile time (see [remeliah/rosu-ffi](https://github.com/remeliah/rosu-ffi/)).
 
-### Gamemode encoding
-
-`Gamemode` (`src/app/consts/mode.cr`) extends the 4 vanilla modes with Relax (+4) and Autopilot (+8) variants. `ChangeActionPacket` remaps the client's raw mode+mods into this internal enum. `as_vn` strips the modifier offset back to 0–3 for wire encoding.
-
 ### Redis
 
-`RedisService` (`src/app/state/redis.cr`) holds two connections: one for commands, one dedicated to pub/sub (a subscribed Redis connection can't issue other commands). Leaderboards are sorted sets keyed `bancho:leaderboard:<mode>` and `bancho:leaderboard:<mode>:<country>`, scored by pp. Rank is derived via `ZREVRANK`.
+`RedisService` (`src/app/state/redis.cr`) holds two connections: one for commands, one dedicated to pub/sub. Leaderboards are sorted sets keyed `bancho:leaderboard:<mode>` and `bancho:leaderboard:<mode>:<country>`, scored by pp. Rank via `ZREVRANK`.
 
-`PubSub` (`src/app/state/pubsub.cr`) subscribes to four channels published by the external score server:
+`PubSub` (`src/app/state/pubsub.cr`) subscribes to four channels published by the score server:
 
 | Channel | Payload | Effect |
 |---------|---------|--------|
@@ -100,7 +94,7 @@ The `map` command publishes `forlorn:refresh_map` with the beatmap MD5 to notify
 
 ### Bot commands
 
-`CommandHandler` (`src/app/objects/commands.cr`) uses a `command` macro to register bot commands. Commands are triggered when a chat message starts with `Config.boat_prefix` (default `?`).
+`CommandHandler` (`src/app/objects/commands.cr`) uses a `command` macro to register bot commands. Commands trigger when a chat message starts with `Config.boat_prefix` (default `?`).
 
 ```crystal
 command "name", "description",
@@ -111,4 +105,8 @@ command "name", "description",
 end
 ```
 
-Privilege-gated commands (`priv:`) are hidden from `?help` output and return "unknown command" to unprivileged players. The `command` macro stores entries in `@@commands` as `{description, arg_names, proc, required_priv?}`.
+Privilege-gated commands (`priv:`) are hidden from `?help` and return "unknown command" to unprivileged players.
+
+### Internal API
+
+`GET /api/v1/get_player_count` and `GET /api/v1/get_player_status` are registered under `Api::V1` and served on the bancho subdomain alongside the Bancho protocol.

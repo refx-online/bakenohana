@@ -364,7 +364,7 @@ module Packets # thanks akatsuki
 
     # TODO: why? imagine if someone cheated their way to get this pp value
     if pp > 65535 || (player.refx && pp > Int32::MAX)
-      rscore = pp
+      rscore = pp.to_i64
       pp = 0
     end
 
