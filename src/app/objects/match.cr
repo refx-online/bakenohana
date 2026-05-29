@@ -119,10 +119,6 @@ class Match
     @slots = Array(Slot).new(16) { Slot.new }
   end
 
-  def host : Player?
-    PlayerSession.get(id: @host_id)
-  end
-
   def url : String
     "osump://#{@id}/#{@passwd}"
   end

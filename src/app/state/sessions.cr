@@ -171,3 +171,9 @@ module ChannelSession
     rlog "loaded #{size} channels from database.", Ansi::LGREEN
   end
 end
+
+class Match
+  def host : Player?
+    PlayerSession.get(id: @host_id)
+  end
+end

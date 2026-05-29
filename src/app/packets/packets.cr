@@ -1,3 +1,7 @@
+require "../objects/player"
+require "../state/sessions"
+require "../models/score_frame"
+
 module Packets # thanks akatsuki
   enum ServerPacket : UInt16
     USER_ID = 5
