@@ -2,18 +2,19 @@ require "kemal"
 require "dotenv"
 Dotenv.load
 
-require "./app/config"
-require "./app/log"
-require "./app/middleware"
+require "./infrastructure/config/config"
+require "./infrastructure/logging/logger"
+require "./infrastructure/middleware/metrics"
 
-require "./app/routes/main_handler"
-require "./app/routes/api_v1"
+require "./transport/routes/bancho"
+require "./transport/routes/api"
 
-require "./app/state/services"
-require "./app/state/sessions"
-require "./app/state/redis"
-require "./app/state/pubsub"
-require "./app/state/match_session"
+require "./persistence/services"
+require "./state/player_session"
+require "./state/channel_session"
+require "./infrastructure/redis/redis_client"
+require "./messaging/pubsub_handler"
+require "./state/match_session"
 
 Services.init
 RedisService.init
