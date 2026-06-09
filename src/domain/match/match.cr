@@ -145,6 +145,14 @@ class Match
     nil
   end
 
+  def host : Player?
+    @slots.each do |s|
+      p = s.player
+      return p if p && p.id == @host_id
+    end
+    nil
+  end
+
   def get_host_slot : Slot?
     h = host
     return nil unless h

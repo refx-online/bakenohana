@@ -1,5 +1,5 @@
 require "spec"
-require "../src/app/packets/packets"
+require "../src/transport/protocol/packets"
 
 alias OsuType = Packets::OsuType
 alias ServerPacket = Packets::ServerPacket
