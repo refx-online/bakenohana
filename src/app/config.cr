@@ -30,6 +30,10 @@ module Config
   def self.redis_url : String
     ENV["REDIS_URL"]? || "redis://localhost:6379"
   end
+
+  def self.enable_old_client_check : Bool
+    ENV["ENABLE_OLD_CLIENT_CHECK"]? == "true"
+  end
 end
 
 # unhandled conf

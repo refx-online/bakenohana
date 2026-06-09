@@ -2,6 +2,7 @@ require "../../objects/player"
 require "../../state/sessions"
 require "../../state/auth"
 require "../../state/geoloc"
+require "../../state/version_checker"
 require "../../consts/presence_filter"
 require "../../consts/priv"
 require "../../consts/login_response"
@@ -80,6 +81,17 @@ module LoginEvent
       burst(player, io)
 
       if parsed_ver = OsuVersion.parse(login_data.osu_version)
+        # Check for outdated client (skipped for re;fx clients)
+        if Config.enable_old_client_check && !VersionChecker.allowed?(parsed_ver.date, parsed_ver.stream, parsed_ver.is_refx)
+          PlayerSession.remove(osu_token)
+          env.response.headers["cho-token"] = "no"
+          env.response.write(
+            Packets.notification("You are using an outdated client. Please update your client to the latest version.") +
+            Packets.login_reply(LoginResponse::AUTH_FAILED)
+          )
+          return
+        end
+
         spawn IngameLoginRepo.create(player.id, ip, parsed_ver.date, parsed_ver.stream)
       end
 
