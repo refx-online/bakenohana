@@ -5,6 +5,8 @@ require "../../../domain/match/commands/mp_commands"
 require "../../../shared/value_objects/message"
 require "../../../infrastructure/performance/performance_calculator"
 require "../../../shared/constants/mods"
+require "../../../infrastructure/ai/openai_client"
+require "../../../persistence/services"
 
 require "../../../infrastructure/config/config"
 
@@ -105,7 +107,26 @@ class SendMessagePrivatePacket < BasePacket
         return
       end
 
-      return CommandHandler.handle_command(p, msg_text) if msg_text.starts_with?(Config.boat_prefix)
+      if msg_text.starts_with?(Config.boat_prefix)
+        return CommandHandler.handle_command(p, msg_text)
+      end
+
+      if Config.ai_enabled
+        spawn do
+          begin
+            response = Services.ai_client.chat(msg_text, Config.ai_system_prompt)
+            if response
+              p.enqueue(Packets.send_message(PlayerSession.bot.username, response, p.username, 1))
+            else
+              p.enqueue(Packets.send_message(PlayerSession.bot.username, "sorry, i couldn't process that right now.", p.username, 1))
+            end
+          rescue ex
+            rlog "[AI] chat error: #{ex.message}", Ansi::LRED
+            p.enqueue(Packets.send_message(PlayerSession.bot.username, "oops, something went wrong!", p.username, 1))
+          end
+        end
+      end
+
       return
     end
 
