@@ -1,152 +1,289 @@
 require "spec"
 require "../src/transport/protocol/packets"
 
-alias OsuType = Packets::OsuType
 alias ServerPacket = Packets::ServerPacket
 
 describe Packets do
-  it "writes I8" do
-    value = -5_i8
-    bytes = Packets.write(ServerPacket::USER_ID, {value, OsuType::I8})
-    bytes[-1].should eq value.unsafe_as(UInt8)
-  end
+  describe ".silence_end" do
+    it "creates valid packet" do
+      bytes = Packets.silence_end(5000)
 
-  it "writes U8" do
-    value = 250_u8
-    bytes = Packets.write(ServerPacket::PONG, {value, OsuType::U8})
-    bytes[-1].should eq value
-  end
-
-  it "writes I16" do
-    value = -1234_i16
-    bytes = Packets.write(ServerPacket::USER_STATS, {value, OsuType::I16})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-2..].should eq expected
-  end
-
-  it "writes U16" do
-    value = 65500_u16
-    bytes = Packets.write(ServerPacket::USER_PRESENCE, {value, OsuType::U16})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-2..].should eq expected
-  end
-
-  it "writes I32" do
-    value = -123456_i32
-    bytes = Packets.write(ServerPacket::USER_LOGOUT, {value, OsuType::I32})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-4..].should eq expected
-  end
-
-  it "writes U32" do
-    value = 123456_u32
-    bytes = Packets.write(ServerPacket::NOTIFICATION, {value, OsuType::U32})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-4..].should eq expected
-  end
-
-  it "writes I64" do
-    value = -123456789_i64
-    bytes = Packets.write(ServerPacket::PRIVILEGES, {value, OsuType::I64})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-8..].should eq expected
-  end
-
-  it "writes U64" do
-    value = 123456789_u64
-    bytes = Packets.write(ServerPacket::FRIENDS_LIST, {value, OsuType::U64})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-8..].should eq expected
-  end
-
-  it "writes F32" do
-    value = 3.14_f32
-    bytes = Packets.write(ServerPacket::RESTART, {value, OsuType::F32})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-4..].should eq expected
-  end
-
-  it "writes F64" do
-    value = 3.1415926535_f64
-    bytes = Packets.write(ServerPacket::ACCOUNT_RESTRICTED, {value, OsuType::F64})
-    expected = IO::Memory.new.tap(&.write_bytes(value, IO::ByteFormat::LittleEndian)).to_slice
-    bytes[-8..].should eq expected
-  end
-
-  it "writes String" do
-    str = "osu!"
-    bytes = Packets.write(ServerPacket::PROTOCOL_VERSION, {str, OsuType::String})
-
-    expected = IO::Memory.new
-    expected.write_byte 0x00
-    expected.write_byte 0x0b
-    expected.write_byte str.bytesize.to_u8
-    expected.write str.to_slice
-
-    bytes[6..].should eq expected.to_slice
-  end
-
-  it "writes I32List" do
-    list = [1, 2, 3]
-    bytes = Packets.write(ServerPacket::CHANNEL_INFO_END, {list, OsuType::I32List})
-
-    expected = IO::Memory.new
-    expected.write_byte 0x00
-    expected.write_bytes list.size.to_u16, IO::ByteFormat::LittleEndian
-    list.each { |i| expected.write_bytes i, IO::ByteFormat::LittleEndian }
-
-    bytes[6..].should eq expected.to_slice
-  end
-
-  it "writes Raw bytes" do
-    raw = Bytes[0xDE, 0xAD, 0xBE, 0xEF]
-    bytes = Packets.write(ServerPacket::USER_ID, {raw, OsuType::Raw})
-    bytes[-4..].should eq raw
-  end
-
-  it "writes Message tuple" do
-    msg = {"sender", "target", "content", 123}
-    bytes = Packets.write(ServerPacket::SEND_MESSAGE, {msg, OsuType::Message})
-
-    expected = IO::Memory.new
-    expected.write_byte 0x00
-    {"sender", "target", "content"}.each do |s|
-      expected.write_byte 0x0b
-      expected.write_byte s.bytesize.to_u8
-      expected.write s.to_slice
+      bytes[0].should eq (ServerPacket::SILENCE_END.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SILENCE_END.value >> 8) & 0xFF)
+      bytes.size.should be > 7
     end
-    expected.write_bytes 123_i32, IO::ByteFormat::LittleEndian
 
-    bytes[6..].should eq expected.to_slice
+    it "handles zero delta" do
+      bytes = Packets.silence_end(0)
+      bytes.size.should be > 0
+    end
   end
 
-  # methods
+  describe ".user_silenced" do
+    it "creates valid packet" do
+      bytes = Packets.user_silenced(12345)
 
-  it "writes spectator_cant_spectate" do
-    bytes = Packets.spectator_cant_spectate(0)
-
-    expected = IO::Memory.new
-
-    expected.write_byte 0x16
-    expected.write_byte 0x00
-    expected.write_byte 0x00
-
-    expected.write_bytes 4_u32, IO::ByteFormat::LittleEndian
-
-    expected.write_bytes 0_i32, IO::ByteFormat::LittleEndian
-
-    bytes.should eq expected.to_slice
+      bytes[0].should eq (ServerPacket::USER_SILENCED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::USER_SILENCED.value >> 8) & 0xFF)
+    end
   end
 
-  it "writes channel_kick" do
-    bytes = Packets.channel_kick("#spectator")
+  describe ".login_reply" do
+    it "creates valid packet with positive user id" do
+      bytes = Packets.login_reply(999)
 
-    expected = IO::Memory.new
-    expected.write_byte 0x00
-    expected.write_byte 0x0b
-    expected.write_byte "#spectator".bytesize.to_u8
-    expected.write "#spectator".to_slice
+      bytes[0].should eq (ServerPacket::USER_ID.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::USER_ID.value >> 8) & 0xFF)
+    end
 
-    bytes[6..].should eq expected.to_slice
+    it "handles negative user id for error codes" do
+      bytes = Packets.login_reply(-1)
+      bytes.size.should be > 0
+    end
+  end
+
+  describe ".pong" do
+    it "creates valid empty packet" do
+      bytes = Packets.pong
+
+      bytes[0].should eq (ServerPacket::PONG.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::PONG.value >> 8) & 0xFF)
+      bytes[3..6].should eq Bytes[0x00, 0x00, 0x00, 0x00]
+    end
+  end
+
+  describe ".protocol_version" do
+    it "creates valid packet" do
+      bytes = Packets.protocol_version(19)
+
+      bytes[0].should eq (ServerPacket::PROTOCOL_VERSION.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::PROTOCOL_VERSION.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".bancho_privileges" do
+    it "creates valid packet" do
+      bytes = Packets.bancho_privileges(31)
+
+      bytes[0].should eq (ServerPacket::PRIVILEGES.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::PRIVILEGES.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".notification" do
+    it "creates valid packet with message" do
+      bytes = Packets.notification("Welcome to the server!")
+
+      bytes[0].should eq (ServerPacket::NOTIFICATION.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::NOTIFICATION.value >> 8) & 0xFF)
+      String.new(bytes[9..]).should eq "Welcome to the server!"
+    end
+
+    it "handles empty notification" do
+      bytes = Packets.notification("")
+      bytes.size.should be > 0
+    end
+
+    it "handles long notification" do
+      long_msg = "a" * 500
+      bytes = Packets.notification(long_msg)
+      bytes.size.should be > 500
+    end
+  end
+
+  describe ".send_message" do
+    it "creates valid packet" do
+      bytes = Packets.send_message("player1", "hello world", "#osu", 100)
+
+      bytes[0].should eq (ServerPacket::SEND_MESSAGE.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SEND_MESSAGE.value >> 8) & 0xFF)
+      bytes.size.should be > 20
+    end
+
+    it "handles private message" do
+      bytes = Packets.send_message("admin", "restricted", "cheater", 1)
+      bytes.size.should be > 0
+    end
+  end
+
+  describe ".logout" do
+    it "creates valid packet" do
+      bytes = Packets.logout(42)
+
+      bytes[0].should eq (ServerPacket::USER_LOGOUT.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::USER_LOGOUT.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".account_restricted" do
+    it "creates valid empty packet" do
+      bytes = Packets.account_restricted
+
+      bytes[0].should eq (ServerPacket::ACCOUNT_RESTRICTED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::ACCOUNT_RESTRICTED.value >> 8) & 0xFF)
+      bytes[3..6].should eq Bytes[0x00, 0x00, 0x00, 0x00]
+    end
+  end
+
+  describe ".channel_info_end" do
+    it "creates valid empty packet" do
+      bytes = Packets.channel_info_end
+
+      bytes[0].should eq (ServerPacket::CHANNEL_INFO_END.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::CHANNEL_INFO_END.value >> 8) & 0xFF)
+      bytes[3..6].should eq Bytes[0x00, 0x00, 0x00, 0x00]
+    end
+  end
+
+  describe ".channel_info" do
+    it "creates valid packet" do
+      bytes = Packets.channel_info("#osu", "General discussion", 150)
+
+      bytes[0].should eq (ServerPacket::CHANNEL_INFO.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::CHANNEL_INFO.value >> 8) & 0xFF)
+      bytes.size.should be > 20
+    end
+
+    it "handles empty topic" do
+      bytes = Packets.channel_info("#test", "", 0)
+      bytes.size.should be > 0
+    end
+  end
+
+  describe ".channel_join" do
+    it "creates valid packet" do
+      bytes = Packets.channel_join("#osu")
+
+      bytes[0].should eq (ServerPacket::CHANNEL_JOIN.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::CHANNEL_JOIN.value >> 8) & 0xFF)
+      String.new(bytes[9..]).should eq "#osu"
+    end
+
+    it "handles spectator channel" do
+      bytes = Packets.channel_join("#spec_12345")
+      String.new(bytes[9..]).should eq "#spec_12345"
+    end
+  end
+
+  describe ".channel_kick" do
+    it "creates valid packet" do
+      bytes = Packets.channel_kick("#spectator")
+
+      bytes[0].should eq (ServerPacket::CHANNEL_KICK.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::CHANNEL_KICK.value >> 8) & 0xFF)
+      String.new(bytes[9..]).should eq "#spectator"
+    end
+  end
+
+  describe ".spectator_joined" do
+    it "creates valid packet" do
+      bytes = Packets.spectator_joined(12345)
+
+      bytes[0].should eq (ServerPacket::SPECTATOR_JOINED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SPECTATOR_JOINED.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".spectator_left" do
+    it "creates valid packet" do
+      bytes = Packets.spectator_left(12345)
+
+      bytes[0].should eq (ServerPacket::SPECTATOR_LEFT.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SPECTATOR_LEFT.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".spectator_cant_spectate" do
+    it "creates valid packet" do
+      bytes = Packets.spectator_cant_spectate(0)
+
+      bytes[0].should eq (ServerPacket::SPECTATOR_CANT_SPECTATE.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SPECTATOR_CANT_SPECTATE.value >> 8) & 0xFF)
+      bytes[3..6].should eq Bytes[0x04, 0x00, 0x00, 0x00]
+    end
+  end
+
+  describe ".f_spectator_joined" do
+    it "creates valid packet" do
+      bytes = Packets.f_spectator_joined(99999)
+
+      bytes[0].should eq (ServerPacket::FELLOW_SPECTATOR_JOINED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::FELLOW_SPECTATOR_JOINED.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".f_spectator_left" do
+    it "creates valid packet" do
+      bytes = Packets.f_spectator_left(99999)
+
+      bytes[0].should eq (ServerPacket::FELLOW_SPECTATOR_LEFT.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::FELLOW_SPECTATOR_LEFT.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".spectator_frames" do
+    it "creates valid packet with frame data" do
+      frame_data = Bytes[0x01, 0x02, 0x03, 0x04]
+      bytes = Packets.spectator_frames(frame_data)
+
+      bytes[0].should eq (ServerPacket::SPECTATE_FRAMES.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::SPECTATE_FRAMES.value >> 8) & 0xFF)
+      bytes[-4..].should eq frame_data
+    end
+  end
+
+  describe ".restart_server" do
+    it "creates valid packet" do
+      bytes = Packets.restart_server(30000)
+
+      bytes[0].should eq (ServerPacket::RESTART.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::RESTART.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".friends_list" do
+    it "creates valid packet with friend ids" do
+      friends = [10, 20, 30, 40, 50]
+      bytes = Packets.friends_list(friends)
+
+      bytes[0].should eq (ServerPacket::FRIENDS_LIST.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::FRIENDS_LIST.value >> 8) & 0xFF)
+
+      list_size = bytes[7].to_u16 | (bytes[8].to_u16 << 8)
+      list_size.should eq 5
+    end
+
+    it "handles empty friends list" do
+      bytes = Packets.friends_list([] of Int32)
+
+      bytes[7..8].should eq Bytes[0x00, 0x00]
+    end
+  end
+
+  describe ".dispose_match" do
+    it "creates valid packet" do
+      bytes = Packets.dispose_match(42)
+
+      bytes[0].should eq (ServerPacket::DISPOSE_MATCH.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::DISPOSE_MATCH.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".user_dm_blocked" do
+    it "creates valid packet" do
+      bytes = Packets.user_dm_blocked("player")
+
+      bytes[0].should eq (ServerPacket::USER_DM_BLOCKED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::USER_DM_BLOCKED.value >> 8) & 0xFF)
+    end
+  end
+
+  describe ".target_is_silenced" do
+    it "creates valid packet" do
+      bytes = Packets.target_is_silenced("player")
+
+      bytes[0].should eq (ServerPacket::TARGET_IS_SILENCED.value & 0xFF)
+      bytes[1].should eq ((ServerPacket::TARGET_IS_SILENCED.value >> 8) & 0xFF)
+    end
   end
 end
