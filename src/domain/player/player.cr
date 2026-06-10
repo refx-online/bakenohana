@@ -10,6 +10,7 @@ require "../../persistence/repositories/relationship"
 require "../../persistence/repositories/user"
 require "../../persistence/repositories/stats"
 require "../../infrastructure/redis/redis_client"
+require "../../infrastructure/logging/logger"
 require "../../state/match_session"
 
 class Player
@@ -64,6 +65,11 @@ class Player
   def enqueue(data : Bytes)
     @queue_mut.synchronize do
       @queue.write data
+    end
+
+    if data.size >= 2
+      packet_id = IO::ByteFormat::LittleEndian.decode(UInt16, data[0, 2])
+      rlog "Server sent packet #{packet_id} to #{@username}", Ansi::LCYAN
     end
   end
 

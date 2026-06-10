@@ -14,7 +14,11 @@ class Metrics < Kemal::Handler
       host   = env.request.headers["Host"]?
       path   = env.request.path
       method = env.request.method
-      rlog "[#{method}] #{status} #{host}#{path}#{Ansi::RESET} | #{Ansi::LBLUE}request took: #{format_time(elap)}", color
+
+      # Skip logging POST / (bancho packet endpoint - too noisy, no useful info)
+      unless method == "POST" && path == "/"
+        rlog "[#{method}] #{status} #{host}#{path}#{Ansi::RESET} | #{Ansi::LBLUE}request took: #{format_time(elap)}", color
+      end
     rescue ex
       rlog "[scan?] #{env.request.path} | #{Ansi::LBLUE}request took: #{format_time(elap)}", color
       rlog env.request.to_s

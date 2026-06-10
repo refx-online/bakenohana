@@ -46,6 +46,7 @@ module Cho
 
       begin
         BanchoPacketReader.new(body, packet_map).each do |packet|
+          rlog "Player #{player.username} sent #{packet.class.name}", Ansi::LBLUE
           packet.handle(player)
         end
       rescue ex
