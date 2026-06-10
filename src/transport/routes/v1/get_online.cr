@@ -2,7 +2,7 @@ require "../../../state/player_session"
 
 module Api::V1
   def self.register_get_online
-    get "/api/v1/online" do |env|
+    get "/api/v1/get_online" do |env|
       env.response.content_type = "text/plain"
 
       players = [] of String
