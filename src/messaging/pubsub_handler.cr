@@ -16,16 +16,23 @@ module PubSub
     spawn do
       rlog "pubsub loop started, subscribing to: #{CHANNELS.join(", ")}", Ansi::LCYAN
 
-      begin
-        RedisService.sub.subscribe("refx:notify", "refx:restrict", "refx:refresh_stats", "refx:recalculate") do |on|
-          on.message do |channel, payload|
-            rlog "[pubsub] #{channel}: #{payload}", Ansi::LBLUE
-            handle(channel, payload)
+      # NOTE: subscribe only returns when the connection drops — loop with
+      # backoff so a redis blip doesn't permanently kill notify/restrict/
+      # stats handling until the next process restart.
+      loop do
+        begin
+          RedisService.sub.subscribe("refx:notify", "refx:restrict", "refx:refresh_stats", "refx:recalculate") do |on|
+            on.message do |channel, payload|
+              rlog "[pubsub] #{channel}: #{payload}", Ansi::LBLUE
+              handle(channel, payload)
+            end
           end
+        rescue ex
+          rlog "[pubsub] loop crashed: #{ex.message}", Ansi::LRED
+          rlog ex.backtrace.join("\n"), Ansi::LRED
         end
-      rescue ex
-        rlog "[pubsub] loop crashed: #{ex.message}", Ansi::LRED
-        rlog ex.backtrace.join("\n"), Ansi::LRED
+
+        sleep 5.seconds
       end
     end
   end

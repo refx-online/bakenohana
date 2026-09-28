@@ -186,7 +186,13 @@ module Packets
 
     m.slots.each do |s|
       if s.status.has_player?
-        io.write_bytes s.player.not_nil!.id, IO::ByteFormat::LittleEndian
+        # NOTE: desynced slot (flag set, no player) used to raise
+        # NilAssertionError and abort the whole broadcast — send 0 instead.
+        if p = s.player
+          io.write_bytes p.id, IO::ByteFormat::LittleEndian
+        else
+          io.write_bytes 0, IO::ByteFormat::LittleEndian
+        end
       end
     end
 
@@ -221,8 +227,9 @@ module Packets
     io.write_byte sf.tag_byte
     io.write_byte sf.score_v2 ? 1_u8 : 0_u8
     if sf.score_v2
-      io.write_bytes sf.combo_portion.not_nil!, IO::ByteFormat::LittleEndian
-      io.write_bytes sf.bonus_portion.not_nil!, IO::ByteFormat::LittleEndian
+      # NOTE: nil portions used to raise — default to 0.0 like above.
+      io.write_bytes sf.combo_portion || 0.0, IO::ByteFormat::LittleEndian
+      io.write_bytes sf.bonus_portion || 0.0, IO::ByteFormat::LittleEndian
     end
   end
 end

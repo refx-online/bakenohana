@@ -15,17 +15,24 @@ module Api::V1
         next({"status" => "Must provide either id OR name!"}.to_json)
       end
 
+      # NOTE: to_i raises on garbage (?id=abc) — validate instead of 500ing.
+      id = id_param.try(&.to_i?)
+      if !name_param && id.nil?
+        env.response.status_code = 400
+        next({"status" => "Must provide a numeric id!"}.to_json)
+      end
+
       player = if name_param
         PlayerSession.get(username: name_param)
       else
-        PlayerSession.get(id: id_param.not_nil!.to_i)
+        PlayerSession.get(id: id.not_nil!)
       end
 
       if player.nil?
         row = if name_param
           UserRepo.fetch_one(name_param.not_nil!)
         else
-          UserRepo.fetch_one(id_param.not_nil!.to_i)
+          UserRepo.fetch_one(id.not_nil!)
         end
 
         if row.nil?

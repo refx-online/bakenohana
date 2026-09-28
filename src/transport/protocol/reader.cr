@@ -90,7 +90,11 @@ class BanchoPacketReader
         @current_len = p_len
         return packet_class.new(self)
       else
-        if p_len != 0 && p_len <= @body_view.size
+        # NOTE: unknown packet. skip it when its length fits in what remains
+        # so trailing valid packets in the same body still get handled.
+        # only stop when the body is truncated (p_len exceeds remaining),
+        # since then nothing past this point can be trusted.
+        if p_len <= @body_view.size
           @body_view = @body_view[p_len..]
         else
           break
@@ -212,6 +216,9 @@ class BanchoPacketReader
 
   def read_i32_list_i16l : Array(Int32)
     len = read_u16.to_i
+    # NOTE: each element costs 4 bytes — reject lengths that can't fit so a
+    # malicious client can't force a huge allocation (DoS).
+    raise IndexError.new("list length exceeds remaining data") if len > @body_view.size // 4
     arr = Array(Int32).new(len)
     len.times { arr << read_i32 }
     arr
@@ -219,6 +226,9 @@ class BanchoPacketReader
 
   def read_i32_list_i32l : Array(Int32)
     len = read_u32.to_i
+    # NOTE: same guard as above (u32 length needs no extra headroom check —
+    # the remaining-bytes check covers it).
+    raise IndexError.new("list length exceeds remaining data") if len > @body_view.size // 4
     arr = Array(Int32).new(len)
     len.times { arr << read_i32 }
     arr
@@ -236,8 +246,12 @@ class BanchoPacketReader
       len |= (byte & 0x7F) << shift
       break unless (byte & 0x80) != 0
       shift += 7
+      # NOTE: uleb128 for a 32-bit length is at most 5 bytes — cap the shift
+      # so malformed input fails fast instead of looping on garbage.
+      raise IndexError.new("string length overflow") if shift > 28
     end
 
+    raise IndexError.new("not enough data") if len > @body_view.size
     str_bytes = @body_view[0, len]
     @body_view = @body_view[len..]
     String.new(str_bytes)
