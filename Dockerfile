@@ -2,7 +2,9 @@ FROM crystallang/crystal:1.13.3 AS builder
 WORKDIR /app
 
 COPY shard.yml shard.lock* ./
-RUN shards install --production
+# NOTE (local setup): repo has no shard.lock, so --production fails
+# with "E: Missing shard.lock". Resolve instead of requiring a lockfile.
+RUN shards install
 
 COPY . .
 RUN mkdir -p bin && crystal build --release src/bakenohana.cr -o bin/bakenohana
