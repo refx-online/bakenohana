@@ -61,6 +61,10 @@ class OsuPerformanceCalculator
       raise "omajinai error: #{parsed.error}"
     end
 
-    parsed.data.not_nil!
+    # NOTE: success with null data used to die with NilAssertionError —
+    # raise something debuggable instead (callers already rescue this).
+    data = parsed.data
+    raise "omajinai returned success with no data" if data.nil?
+    data
   end
 end

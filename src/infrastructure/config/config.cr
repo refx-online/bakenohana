@@ -24,7 +24,7 @@ module Config
   end
 
   def self.omajinai_url : String
-    ENV["OMAJINAI_URL"]? || "http://localhost:5000"
+    ENV["OMAJINAI_URL"]? || "http://localhost:1994"
   end
 
   def self.redis_url : String

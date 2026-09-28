@@ -1,5 +1,6 @@
 require "http/client"
 require "json"
+require "../../infrastructure/logging/logger"
 
 module VersionChecker
   OSU_API_V2_CHANGELOG_URL = "https://osu.ppy.sh/api/v2/changelog"
@@ -14,7 +15,10 @@ module VersionChecker
 
     stream_key = normalize_stream(stream)
     versions = fetch_allowed_versions(stream_key)
-    return true if versions.nil?
+    if versions.nil?
+      rlog "[version] no version list available, allowing #{date_str} (fail-open)", Ansi::LYELLOW
+      return true
+    end
 
     versions.includes?(date_str)
   end
@@ -41,7 +45,11 @@ module VersionChecker
     end
 
     versions = fetch_from_api(stream)
-    return nil if versions.nil?
+    if versions.nil?
+      # NOTE: api hiccup — reuse the last known list instead of fail-opening
+      # to "allow everything". only fail open when we never fetched once.
+      return @@mutex.synchronize { @@cache[stream]? }
+    end
 
     @@mutex.synchronize do
       @@cache[stream] = versions
@@ -70,10 +78,13 @@ module VersionChecker
   end
 
   private def self.fetch_single_stream(stream : String) : Set(String)?
-    uri = URI.parse(OSU_API_V2_CHANGELOG_URL)
-    uri.query = "stream=#{stream}"
+    uri = URI.parse("#{OSU_API_V2_CHANGELOG_URL}?stream=#{stream}")
 
-    response = HTTP::Client.get(uri)
+    # NOTE: unbounded by default — a hung api call would stall logins.
+    client = HTTP::Client.new(uri)
+    client.connect_timeout = 5.seconds
+    client.read_timeout = 10.seconds
+    response = client.get(uri.request_target)
     return nil unless response.success?
 
     body = JSON.parse(response.body)
