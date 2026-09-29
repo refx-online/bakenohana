@@ -80,7 +80,7 @@ class CreateMatchPacket < BasePacket
       map_md5: @data.map_md5,
       map_name: @data.map_name,
       mods: Mods.new(@data.mods.to_u32),
-      mode: Gamemode.new(@data.mode.to_u8),
+      mode: Match.host_mode(p, @data.mode.to_u8),
       win_condition: MatchWinConditions.new(@data.win_condition.to_u8),
       team_type: MatchTeamTypes.new(@data.team_type.to_u8),
       freemods: @data.freemods,
@@ -253,7 +253,7 @@ class MatchChangeSettingsPacket < MatchHandlerBase
       m.map_id   = @data.map_id
       m.map_md5  = @data.map_md5
       m.map_name = @data.map_name
-      m.mode     = Gamemode.new(@data.mode.to_u8)
+      m.mode     = Match.host_mode(p, @data.mode.to_u8)
     end
 
     if m.team_type != MatchTeamTypes.new(@data.team_type.to_u8)
