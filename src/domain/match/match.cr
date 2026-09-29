@@ -159,6 +159,17 @@ class Match
     @slots.find { |s| s.player.same?(h) }
   end
 
+  # NOTE: the mode byte on the wire is always 0-3 (vanilla protocol), so a
+  # match created by an rx/ap/cheat/touch player would be stored (and
+  # scored) as vanilla. resolve the host's real variant the same way
+  # Player#resolve_mode does for stats. display on vanilla clients still
+  # shows the base mode (protocol limit) — wire keeps using as_vn.
+  def self.host_mode(host : Player, wire_mode : UInt8) : Gamemode
+    base = wire_mode <= 3 ? wire_mode : 0_u8
+    resolved, _ = host.resolve_mode(base, host.status.mods.value)
+    Gamemode.new(resolved)
+  end
+
   def copy(m : Match) : Nil
     @map_id = m.map_id
     @map_md5 = m.map_md5
