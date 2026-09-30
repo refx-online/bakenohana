@@ -59,7 +59,7 @@ Server-to-client packets are built by `Packets.write` (`src/transport/protocol/p
 
 `Player` owns a mutex-protected `IO::Memory` queue. Packets are written with `enqueue(Bytes)` and consumed atomically with `dequeue : Bytes`.
 
-`player.refx` (Bool) marks a re;fx custom client user. `player.refx_lb` (Int32) selects their leaderboard variant (0 = vanilla, 1/2 = cheat, 5/6 = cheatcheat). `Player#resolve_mode` uses these to remap the wire mode byte before stats lookups. `Packets.user_stats` allows pp values above `Int32::MAX` for refx players by routing them through `rscore`.
+`player.refx` (Bool) marks a re;fx custom client user. `player.refx_lb` (Int32) selects their leaderboard variant (0 = vanilla, 1/2 = cheat, 5/6 = cheat-rx). `Player#resolve_mode` uses these to remap the wire mode byte before stats lookups. `Packets.user_stats` allows pp values above `Int32::MAX` for refx players by routing them through `rscore`.
 
 ### Repo layer
 
@@ -67,7 +67,7 @@ Repo structs (`src/persistence/repositories/`) include `DB::Serializable` and ex
 
 ### Gamemode encoding
 
-`Gamemode` (`src/shared/constants/mode.cr`) is a `UInt8` enum extending the 4 vanilla modes (0–3) with: Relax (4–7), Autopilot (8–11), Cheat (12–15), CheatCheat (16–19), TouchDevice (20). `as_vn` returns `value % 4` to strip the variant offset back to 0–3 for wire encoding. `VALID_GAMEMODES` excludes RX_MANIA, AP_TAIKO, AP_CATCH, AP_MANIA.
+`Gamemode` (`src/shared/constants/mode.cr`) is a `UInt8` enum: vanilla (0–3), Relax (4–6), Autopilot (8, std only), Cheat non-rx (12–15), Cheat-rx (21–23), Cheat-ap (24, std only). `as_vn` is an explicit match back to 0–3 for wire encoding (never `% 4` — 21 % 4 would land on taiko). `VALID_GAMEMODES` lists exactly those 16 ids.
 
 ### Geolocation
 

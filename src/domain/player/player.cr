@@ -338,13 +338,14 @@ class Player
     if @refx
       case @refx_lb
       when 1, 2 then return {12_u8, mods} # cheat/cheatselectedmod
-      when 5, 6 then return {16_u8, mods} # cheatcheat/cheatcheatselectedmod
+      when 5, 6 then return {21_u8, mods} # cheatcheat flavor now lives on cheat-rx
       end
       return {mode, mods}
     end
 
+    # touch folds into vanilla std (TD mod bit stays on the score for pp).
     if (mods & Mods::TOUCHSCREEN.value) != 0
-      return {20_u8, mods}
+      return {0_u8, mods}
     end
 
     if (mods & Mods::RELAX.value) != 0

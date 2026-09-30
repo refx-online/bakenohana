@@ -33,7 +33,7 @@ class OsuPerformanceCalculator
   ) : PerformanceResult
     raise "accuracy must be between 0 and 100" unless (0.0..100.0).includes?(accuracy)
 
-    if mode.value >= Gamemode::CHEAT_OSU.value && mode.value <= Gamemode::CHEAT_CHEAT_MANIA.value
+    if mode.cheat?
       mods |= Mods::RELAX
     end
 
