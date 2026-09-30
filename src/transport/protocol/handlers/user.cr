@@ -34,8 +34,7 @@ class ChangeActionPacket < BasePacket
     when 4..7   then " [RX]"
     when 8      then " [AP]"
     when 12..15 then " [CHEAT]"
-    when 16..19 then " [CHEATCHEAT]"
-    when 20     then " [TD]"
+    when 21..24 then " [CHEAT]"
     else             " [VN]"
     end
 
