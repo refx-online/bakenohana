@@ -37,6 +37,9 @@ struct BeatmapRepo
   @[DB::Field(name: "status")]
   property status : Int32
 
+  @[DB::Field(name: "status_mask")]
+  property status_mask : Int64
+
   @[DB::Field(name: "md5")]
   property md5 : String
 
@@ -80,19 +83,19 @@ struct BeatmapRepo
 
   def self.fetch_one(map_id : Int32) : self?
     Services.db.fetch_one(self,
-      "select id, set_id, status, md5, artist, title, version, creator, total_length, diff, cs, od, ar, hp from maps where id = ?",
+      "select id, set_id, status, status_mask, md5, artist, title, version, creator, total_length, diff, cs, od, ar, hp from maps where id = ?",
       map_id)
   end
 
   def self.update_status(map_id : Int32, status : RankedStatus) : DB::ExecResult
     Services.db.execute(
-      "update maps set status = ?, frozen = 1 where id = ?",
-      status.value, map_id)
+      "update maps set status = ?, status_mask = ?, frozen = 1 where id = ?",
+      status.value, Gamemode.all_modes_status(status.value).to_i64, map_id)
   end
 
   def self.update_set_status(set_id : Int32, status : RankedStatus) : DB::ExecResult
     Services.db.execute(
-      "update maps set status = ?, frozen = 1 where set_id = ?",
-      status.value, set_id)
+      "update maps set status = ?, status_mask = ?, frozen = 1 where set_id = ?",
+      status.value, Gamemode.all_modes_status(status.value).to_i64, set_id)
   end
 end

@@ -67,7 +67,7 @@ Repo structs (`src/persistence/repositories/`) include `DB::Serializable` and ex
 
 ### Gamemode encoding
 
-`Gamemode` (`src/shared/constants/mode.cr`) is a `UInt8` enum: vanilla (0–3), Relax (4–6), Autopilot (8, std only), Cheat non-rx (12–15), Cheat-rx (21–23), Cheat-ap (24, std only). `as_vn` is an explicit match back to 0–3 for wire encoding (never `% 4` — 21 % 4 would land on taiko). `VALID_GAMEMODES` lists exactly those 16 ids.
+`Gamemode` (`src/shared/constants/mode.cr`) is a `UInt8` enum: vanilla (0–3), Relax (4–6), Autopilot (7, std only), Cheat non-rx (8–11), Cheat-rx (12–14), Cheat-ap (15, std only). `as_vn` is an explicit match back to 0–3 for wire encoding (never `% 4` — 21 % 4 would land on taiko). `VALID_GAMEMODES` lists exactly those 16 ids.
 
 ### Geolocation
 

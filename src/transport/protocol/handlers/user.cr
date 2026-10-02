@@ -31,10 +31,10 @@ class ChangeActionPacket < BasePacket
     mode, mods = p.resolve_mode(@mode, @mods)
 
     tag = case mode
-    when 4..7   then " [RX]"
-    when 8      then " [AP]"
+    when 4..6   then " [RX]"
+    when 7      then " [AP]"
+    when 8..11  then " [CHEAT]"
     when 12..15 then " [CHEAT]"
-    when 21..24 then " [CHEAT]"
     else             " [VN]"
     end
 

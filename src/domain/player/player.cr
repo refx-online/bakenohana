@@ -337,8 +337,8 @@ class Player
   def resolve_mode(mode : UInt8, mods : UInt32) : Tuple(UInt8, UInt32)
     if @refx
       case @refx_lb
-      when 1, 2 then return {12_u8, mods} # cheat/cheatselectedmod
-      when 5, 6 then return {21_u8, mods} # cheatcheat flavor now lives on cheat-rx
+      when 1, 2 then return {8_u8, mods} # cheat/cheatselectedmod
+      when 5, 6 then return {12_u8, mods} # cheatcheat flavor now lives on cheat-rx
       end
       return {mode, mods}
     end
@@ -360,7 +360,7 @@ class Player
       end
     elsif (mods & Mods::AUTOPILOT.value) != 0
       if mode == 0
-        mode = 8_u8
+        mode = 7_u8
       else
         mods &= ~Mods::AUTOPILOT.value
       end
