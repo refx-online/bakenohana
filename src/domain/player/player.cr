@@ -11,6 +11,7 @@ require "../../persistence/repositories/user"
 require "../../persistence/repositories/stats"
 require "../../infrastructure/redis/redis_client"
 require "../../infrastructure/logging/logger"
+require "../match/presence_bridge"
 require "../../state/match_session"
 
 class Player
@@ -243,6 +244,10 @@ class Player
       break unless first_channel
       leave_channel(first_channel, kick: false)
     end
+
+    # last: by now the session is fully torn down, so lazer sees the player go
+    # offline at the same moment stable stops counting them.
+    PresenceBridge.clear_presence(@id)
 
     logout_packet = Packets.logout(@id)
     PlayerSession.each do |other_player, _|

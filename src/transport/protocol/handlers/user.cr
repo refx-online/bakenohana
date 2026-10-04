@@ -1,6 +1,7 @@
 require "../../../state/player_session"
 require "../../../shared/constants/mods"
 require "../../../shared/constants/mode"
+require "../../../domain/match/presence_bridge"
 
 class PongPacket < BasePacket
   def handle(p : Player)
@@ -38,12 +39,19 @@ class ChangeActionPacket < BasePacket
     else             " [VN]"
     end
 
+    prev_action = p.status.action
+    prev_map   = p.status.map_id
+    prev_mode  = p.status.mode.value
+
     p.status.action    = @action
     p.status.map_md5   = @map_md5
     p.status.mods      = Mods.new(mods)
     p.status.mode      = Gamemode.new(mode)
     p.status.map_id    = @map_id
     p.status.info_text = @info_text + tag
+
+    # tell lazer's metadata hub, but only when something visible changed
+    PresenceBridge.touch(p, prev_action, prev_map, prev_mode)
 
     if p.status.mode != prev_mode
       p.load_stats

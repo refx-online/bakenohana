@@ -8,6 +8,7 @@ require "../../../shared/constants/presence_filter"
 require "../../../shared/constants/priv"
 require "../../../shared/constants/login_response"
 require "../../../persistence/models/login_data"
+require "../../../domain/match/presence_bridge"
 require "../../../shared/value_objects/osu_version"
 require "../../../persistence/repositories/ingame_login"
 require "../packets"
@@ -79,6 +80,9 @@ module LoginEvent
       player.load_stats
       player.update_leaderboards
       player.get_relationship
+
+      # make this stable session visible to lazer's metadata hub
+      PresenceBridge.set_presence(player)
 
       geoloc = Geoloc.fetch(ip, env.request.headers)
       player.status.country      = geoloc.country
