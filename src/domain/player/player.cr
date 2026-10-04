@@ -28,6 +28,12 @@ class Player
 
   property priv : Privileges
   property silence_end : Int64 = 0_i64
+
+  # Identity is the user id, not the object: sessions come and go
+  # (relogins, ghost kicks) but slots, hosts and spectators refer to users.
+  def same?(other : Player) : Bool
+    @id == other.id
+  end
   property pm_private : Bool = false
   property away_msg : String? = nil
   property pres_filter : PresenceFilter = PresenceFilter::All
@@ -219,6 +225,11 @@ class Player
   end
 
   def logout
+    # Drop the session first: everything below can fail or block (redis,
+    # channels), and a half-logged-out object keeps receiving packets
+    # meant for the next login.
+    PlayerSession.remove(@token)
+
     remove_from_leaderboards
 
     leave_match if @match
@@ -232,8 +243,6 @@ class Player
       break unless first_channel
       leave_channel(first_channel, kick: false)
     end
-
-    PlayerSession.remove(@token)
 
     logout_packet = Packets.logout(@id)
     PlayerSession.each do |other_player, _|
@@ -440,21 +449,33 @@ class Player
   # multiplayer
 
   def join_match(match : Match, passwd : String) : Bool
+    # already seated (pre-seated bot, lobby refresh, rejoin after drop):
+    # just sync state instead of failing.
+    if match.get_slot(self)
+      @match = match
+      enqueue(Packets.match_join_success(match))
+      match.enqueue_state
+      rlog "[join] #{@username} reseat ok match=#{match.id}", Ansi::LGREEN
+      return true
+    end
+
     if @match
+      rlog "[join] #{@username} FAIL have-match=#{@match.try(&.id)} target=#{match.id}", Ansi::LRED
       enqueue(Packets.match_join_fail)
       return false
     end
 
-    if self != match.host
+    h = match.host
+    if self != h
       if passwd != match.passwd
-        rlog "#{@username} tried to join #{match.name} w/ wrong pw.", Ansi::LYELLOW
+        rlog "[join] #{@username} FAIL wrong-pw target=#{match.id}.", Ansi::LRED
         enqueue(Packets.match_join_fail)
         return false
       end
 
       slot_id = match.get_free
       if slot_id.nil?
-        rlog "#{@username} tried to join full match.", Ansi::LYELLOW
+        rlog "[join] #{@username} FAIL full target=#{match.id}.", Ansi::LRED
         enqueue(Packets.match_join_fail)
         return false
       end
@@ -463,7 +484,7 @@ class Player
     end
 
     unless join_channel(match.chat)
-      rlog "#{@username} failed to join #{match.chat}.", Ansi::LYELLOW
+      rlog "[join] #{@username} FAIL channel target=#{match.id}.", Ansi::LRED
       return false
     end
 

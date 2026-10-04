@@ -31,12 +31,16 @@ module Geoloc
   end
 
   private def self.fetch_from_ip(ip : String) : Result
-    url_ip = private_ip?(ip) ? "" : ip
-    response = HTTP::Client.get(
-      "http://ip-api.com/line/#{url_ip}?fields=status,message,countryCode,lat,lon"
-    )
+    # Private/loopback clients carry no geo meaning (and the API would just
+    # see our own egress IP) — skip the call entirely. It has no DNS
+    # timeout cover, so a stall here hangs logins.
+    return unknown if private_ip?(ip)
+    client = HTTP::Client.new(URI.parse("http://ip-api.com"))
+    client.connect_timeout = 3.seconds
+    client.read_timeout = 3.seconds
+    body = client.get("/line/#{ip}?fields=status,message,countryCode,lat,lon").body
 
-    lines = response.body.split("\n")
+    lines = body.split("\n")
     return unknown unless lines[0]? == "success"
 
     country = (lines[1]? || "xx").downcase

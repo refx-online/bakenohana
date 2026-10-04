@@ -62,6 +62,10 @@ class SendMessagePublicPacket < BasePacket
       return
     end
 
+    if msg_text.starts_with?(Config.boat_prefix)
+      return CommandHandler.handle_command(p, msg_text)
+    end
+
     t_chan.send_msg(msg_text, sender: p)
   end
 end
@@ -85,6 +89,7 @@ class SendMessagePrivatePacket < BasePacket
 
     unless target
       rlog "#{p.username} wrote to non-existent #{@msg.recipient}.", Ansi::LYELLOW
+      p.enqueue(Packets.notification("player #{@msg.recipient} isn't online. (the bot is named boat)"))
       return
     end
 

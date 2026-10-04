@@ -49,6 +49,14 @@ module LoginEvent
         return
       end
 
+      # Sweep any lingering sessions for this user id (crashed logouts,
+      # ghost races). Otherwise packets split across duplicate objects and
+      # half the replies vanish.
+      PlayerSession.each do |p, tok|
+        next if p.id != user_info.id
+        p.logout rescue nil
+      end
+
       Auth.validate_adapters(user_info.id, login_data, ip)
 
       osu_token = Random::Secure.hex(16)
