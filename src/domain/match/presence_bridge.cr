@@ -110,8 +110,43 @@ module PresenceBridge
     nil
   end
 
-  # status packets arrive ~1/s while a player is online; only write when
-  # something a watcher can see actually changed.
+  # Refresh the TTL of a presence that a watcher has already been told about.
+  #
+  # This is what keeps a *connected but idle* player visible. The key used to be
+  # written only from `set_presence` (login) and from `touch` (status change), so
+  # a player who logged in and sat in the menu lost their presence after
+  # TTL_SECONDS and it never came back until they entered a lobby or started a
+  # game -- lazer's online list showed nobody, while bakenohana was perfectly
+  # aware of them.
+  #
+  # The premise behind the old `touch` comment was false: the ~1/s packets stable
+  # sends while online are `PongPacket`. `Osu_SendUserStatus` arrives only on
+  # *state changes*, so nothing refreshed the TTL during ordinary play.
+  #
+  # Deliberately does not publish when the key is merely alive: the document is
+  # unchanged, and re-broadcasting every player to every watcher on every tick
+  # would be a fan-out storm for no visible difference. Only a missing key
+  # (expired, or written before this existed) goes through `set_presence`, since
+  # that genuinely is a change watchers have not seen.
+  def self.keepalive(player) : Nil
+    r = RedisService.redis
+    k = key(player.id)
+
+    if r.exists(k)
+      r.expire(k, TTL_SECONDS)
+    else
+      set_presence(player)
+    end
+
+    nil
+  rescue ex
+    rlog "presence keepalive failed for #{player.id}: #{ex.message}", Ansi::LYELLOW
+    nil
+  end
+
+  # `Osu_SendUserStatus` only arrives on state changes, not continuously, so this
+  # writes when something a watcher can see actually changed -- not on a timer.
+  # Liveness is `keepalive`'s job.
   def self.touch(player, prev_action, prev_map_id, prev_mode) : Nil
     status = player.status
     return if status.action == prev_action &&
