@@ -5,6 +5,7 @@ require "../../../application/auth/authentication_service"
 require "../../../infrastructure/geolocation/geolocation_service"
 require "../../../application/version/version_checker"
 require "../../../shared/constants/presence_filter"
+require "../../../domain/player/lazer_presence"
 require "../../../shared/constants/priv"
 require "../../../shared/constants/login_response"
 require "../../../persistence/models/login_data"
@@ -192,6 +193,22 @@ module LoginEvent
       end
       io.write Packets.account_restricted
       player.send_msg("yo bum ass is restricted", PlayerSession.bot)
+    end
+
+    # Lazer players are not bancho sessions, so neither loop above can produce
+    # them, and stable's online-users list is filled purely from the unsolicited
+    # USER_PRESENCE in this burst -- `USER_PRESENCE_REQUEST_ALL` is only sent by
+    # `PresenceCache`, i.e. the spectator list. So this is the one place that
+    # decides who a stable client knows about.
+    unless player.pres_filter == PresenceFilter::Nil || player.pres_filter == PresenceFilter::Friends
+      lazer_users = LazerPresence.online
+      unless lazer_users.empty?
+        rlog "#{player.username} burst includes #{lazer_users.size} lazer player(s): " +
+             lazer_users.map(&.username).join(", "), Ansi::LCYAN
+      end
+      lazer_users.each do |user|
+        io.write Packets.lazer_stats(user) + Packets.lazer_presence(user)
+      end
     end
 
     ChannelSession.each do |c|
