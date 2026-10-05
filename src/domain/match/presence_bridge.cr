@@ -63,35 +63,29 @@ module PresenceBridge
         {"type" => "ChoosingBeatmap"}
       end
 
+    # lazer's UserPresence is `{ Activity, Status }` where
+    #
+    #   [MessagePackObject] struct UserPresence {
+    #       [Key(0)] UserActivity? Activity;
+    #       [Key(1)] UserStatus?   Status;    // Offline=0, DoNotDisturb=1, Online=2
+    #   }
+    #
+    # `Status` is the *enum*, not an object. It used to be written as
+    # `{ "Status": "Idle", "BeatmapInfo": {...}, "RankedMods": [] }`, which is
+    # some other shape entirely -- speedforce's `presence_to_client` does
+    # `_STATUS_ORDINALS.get(status)` by name, so a dict never matched and the
+    # presence was silently dropped. lazer's own online list would have been
+    # empty for the same reason.
+    #
+    # speedforce maps this name to the ordinal on the way out; the stored form is
+    # JSON by contract (see the header comment).
     JSON.build do |json|
       json.object do
-        # lazer's UserPresence is { Activity, Status }
         json.field "Activity", activity
-        json.field "Status" do
-          json.object do
-            json.field "Status", "Idle"
-            json.field "BeatmapInfo", BeatmapSummary.for(status).to_json
-            json.field "RankedMods", [] of String
-          end
-        end
+        json.field "Status", "Online"
         json.field "rulesetId", status.mode.value % 4
         json.field "client", "stable"
       end
-    end
-  end
-
-  # Minimal beatmap summary. bakenohana knows the map id and the info_text the
-  # client sent, but not title/artist/difficulty (those live client-side only),
-  # so lazer shows the id -- enough for an online list.
-  module BeatmapSummary
-    def self.for(status)
-      {
-        "OnlineID"        => status.map_id,
-        "BeatmapSetOnlineID" => 0,
-        "Length"          => 0,
-        "BPM"             => 0,
-        "DifficultyRating" => 0,
-      }
     end
   end
 
