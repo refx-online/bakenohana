@@ -37,14 +37,22 @@ module PresenceBridge
   #   3 choosing                 -> ChoosingBeatmap
   # stable's status packet can also carry an info_text (e.g. "Selecting Beatmap"),
   # which we pass through verbatim so lazer renders something meaningful.
-  ACTION_IDLE      = 0
-  ACTION_PLAYING   = 1
-  ACTION_AFK       = 2
-  ACTION_CHOOSING  = 3
+  ACTION_IDLE     = 0
+  ACTION_PLAYING  = 1
+  ACTION_AFK      = 2
+  ACTION_CHOOSING = 3
 
   def self.key(user_id : Int32) : String
-    "signalr:presence:#{user_id}"
+    "#{KEY_PREFIX}#{user_id}"
   end
+
+  # Glob for every presence key, shared with `LazerPresence` so the two sides
+  # cannot drift apart on what the keyspace looks like.
+  def self.key_pattern : String
+    "#{KEY_PREFIX}*"
+  end
+
+  KEY_PREFIX = "signalr:presence:"
 
   # Build the JSON document lazer's metadata hub relays.
   def self.document(player) : String
@@ -54,9 +62,9 @@ module PresenceBridge
       case status.action
       when ACTION_PLAYING
         {
-          "type"             => "InSoloGame",
-          "BeatmapID"        => status.map_id,
-          "RulesetID"        => status.mode.value % 4,
+          "type"                => "InSoloGame",
+          "BeatmapID"           => status.map_id,
+          "RulesetID"           => status.mode.value % 4,
           "BeatmapDisplayTitle" => status.info_text,
         }
       else

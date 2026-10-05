@@ -1,5 +1,6 @@
 require "../../../state/player_session"
 require "../../../shared/constants/presence_filter"
+require "../../../domain/player/lazer_presence"
 
 class RequestStatusUpdatePacket < BasePacket
   def handle(p : Player)
@@ -36,6 +37,20 @@ class UserPresenceRequestAllPacket < BasePacket
       p.enqueue(
         other == PlayerSession.bot ? Packets.bot_presence(other) : Packets.user_presence(other)
       )
+    end
+
+    # Lazer players hold no bancho session, so the loop above cannot see them --
+    # which is why stable's player list had no lazer users in it. They are read
+    # back out of the shared presence keyspace instead.
+    #
+    # Stats are sent alongside presence because stable's list keys a row off the
+    # stats packet: a presence without matching stats does not render as an
+    # online player.
+    return if p.pres_filter == PresenceFilter::Friends
+
+    LazerPresence.online.each do |user|
+      p.enqueue(Packets.lazer_stats(user))
+      p.enqueue(Packets.lazer_presence(user))
     end
   end
 end
@@ -100,21 +115,21 @@ class IdentifyRefxPacket < BasePacket
   end
 
   def handle(p : Player)
-    p.refx    = true
+    p.refx = true
     p.refx_lb = @current_lb
   end
 end
 
-register(ClientPackets::REQUEST_STATUS_UPDATE,      RequestStatusUpdatePacket)
-register(ClientPackets::ERROR_REPORT,              ErrorReportPacket)
-register(ClientPackets::RECEIVE_UPDATES,           ReceiveUpdatesPacket)
+register(ClientPackets::REQUEST_STATUS_UPDATE, RequestStatusUpdatePacket)
+register(ClientPackets::ERROR_REPORT, ErrorReportPacket)
+register(ClientPackets::RECEIVE_UPDATES, ReceiveUpdatesPacket)
 register(ClientPackets::USER_PRESENCE_REQUEST_ALL, UserPresenceRequestAllPacket)
-register(ClientPackets::CHANNEL_PART,              ChannelPartPacket)
+register(ClientPackets::CHANNEL_PART, ChannelPartPacket)
 register(ClientPackets::TOGGLE_BLOCK_NON_FRIEND_DMS, ToggleBlockNonFriendDMsPacket)
-register(ClientPackets::SET_AWAY_MESSAGE,          SetAwayMessagePacket)
-register(ClientPackets::REFX_LB,                  IdentifyRefxPacket)
+register(ClientPackets::SET_AWAY_MESSAGE, SetAwayMessagePacket)
+register(ClientPackets::REFX_LB, IdentifyRefxPacket)
 
-register_restricted(ClientPackets::REQUEST_STATUS_UPDATE,      RequestStatusUpdatePacket)
-register_restricted(ClientPackets::RECEIVE_UPDATES,            ReceiveUpdatesPacket)
-register_restricted(ClientPackets::USER_PRESENCE_REQUEST_ALL,  UserPresenceRequestAllPacket)
-register_restricted(ClientPackets::REFX_LB,                   IdentifyRefxPacket)
+register_restricted(ClientPackets::REQUEST_STATUS_UPDATE, RequestStatusUpdatePacket)
+register_restricted(ClientPackets::RECEIVE_UPDATES, ReceiveUpdatesPacket)
+register_restricted(ClientPackets::USER_PRESENCE_REQUEST_ALL, UserPresenceRequestAllPacket)
+register_restricted(ClientPackets::REFX_LB, IdentifyRefxPacket)

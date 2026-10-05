@@ -140,6 +140,58 @@ module Packets
     )
   end
 
+  # Lazer players are not `Player`s -- they have no bancho session -- so these
+  # take the fields they need directly rather than borrowing `Player`'s
+  # interface. See `LazerPresence` for why a synthetic `Player` was rejected.
+  def self.lazer_presence(user) : Bytes
+    write(
+      ServerPacket::USER_PRESENCE,
+      {user.id, OsuType::I32},
+      {user.username, OsuType::String},
+      {24_u8, OsuType::U8}, # utc_offset + 24; lazer reports no offset
+      {user.country_code.to_u8, OsuType::U8},
+      {(client_priv_for(user.priv).value | (user.mode.as_vn.to_i32 << 5)).to_u8, OsuType::U8},
+      {0_f32, OsuType::F32},
+      {0_f32, OsuType::F32},
+      {user.global_rank, OsuType::I32}
+    )
+  end
+
+  # Lazer clients do not upload scores through bancho, so the stats are a
+  # neutral placeholder carrying the one thing worth showing: the rank. `action`
+  # and the map fields come from the lazer activity so the row still shows what
+  # they are doing.
+  def self.lazer_stats(user) : Bytes
+    write(
+      ServerPacket::USER_STATS,
+      {user.id, OsuType::I32},
+      {user.action, OsuType::U8},
+      {user.info_text, OsuType::String},
+      {"", OsuType::String},
+      {0_u32, OsuType::U32},
+      {user.mode.as_vn.to_u8, OsuType::U8},
+      {user.map_id, OsuType::I32},
+      {0_i64, OsuType::I64},
+      {0_f32, OsuType::F32},
+      {0, OsuType::I32},
+      {0_i64, OsuType::I64},
+      {user.global_rank, OsuType::I32},
+      {0_u16, OsuType::U16}
+    )
+  end
+
+  # `users.priv` is an Int32 column while `Privileges` is a flag enum, so the
+  # comparisons go through `.value`. Same set as `Player#client_priv`.
+  def self.client_priv_for(priv : Int32) : ClientPrivileges
+    ret = ClientPrivileges::None
+    ret |= ClientPrivileges::PLAYER if (priv & Privileges::UNRESTRICTED.value) != 0
+    ret |= ClientPrivileges::MODERATOR if (priv & Privileges::MODERATOR.value) != 0 ||
+                                          (priv & Privileges::ADMINISTRATOR.value) != 0
+    ret |= ClientPrivileges::DEVELOPER if (priv & Privileges::DEVELOPER.value) != 0
+    ret |= ClientPrivileges::PEPPY if (priv & Privileges::PEPPY.value) != 0
+    ret
+  end
+
   def self.bot_presence(player : Player) : Bytes
     write(
       ServerPacket::USER_PRESENCE,
