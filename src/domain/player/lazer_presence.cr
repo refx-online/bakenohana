@@ -5,6 +5,7 @@ require "../../persistence/repositories/user"
 require "../../infrastructure/redis/redis_client"
 require "../../state/player_session"
 require "../../shared/constants/mode"
+require "../../shared/helpers/country_codes"
 require "../../transport/protocol/packet_builders"
 
 # Lazer -> stable presence.
@@ -106,16 +107,18 @@ module LazerPresence
       reply = r.scan(cursor, match: PresenceBridge.key_pattern, count: 200)
 
       keys = reply[1]
-      if keys.is_a?(Array)
-        keys.each { |raw| found << build(r, raw) if raw.is_a?(String) }
-      end
+      keys.each { |raw| found << build(r, raw) if raw.is_a?(String) } if keys.is_a?(Array)
 
       next_cursor = reply[0]
       cursor = next_cursor.is_a?(String) ? next_cursor : "0"
       break if cursor == "0"
     end
 
-    found.compact
+    resolved = found.compact
+    if resolved.empty?
+      rlog "lazer presence: no lazer players online (no #{PresenceBridge.key_pattern} keys resolved)", Ansi::LYELLOW
+    end
+    resolved
   rescue ex
     # never let cross-client presence break a stable session
     rlog "lazer presence read failed: #{ex.message}", Ansi::LYELLOW
@@ -124,19 +127,20 @@ module LazerPresence
 
   private def self.build(r, raw_key : String) : Online?
     user_id = raw_key.split(":").last.to_i?
+    return nil if user_id.nil?
 
     # A stable session for the same account owns that row: PresenceBridge is
     # already writing it and PlayerSession is authoritative for it.
-    return nil if user_id.nil?
-    return nil if PlayerSession.get(id: user_id)
+    if session = PlayerSession.get(id: user_id)
+      note(raw_key, "has a bancho session (#{session.username})")
+      return nil
+    end
 
     stored = r.get(raw_key)
     return nil if stored.nil? || stored.empty?
 
-    document = begin
-      JSON.parse(stored)
-    rescue ex
-      rlog "lazer presence: unparseable document for #{user_id}: #{ex.message}", Ansi::LYELLOW
+    document = parse(raw_key, stored)
+    if document.nil?
       return nil
     end
 
@@ -145,33 +149,76 @@ module LazerPresence
     # the lazer path whenever their bancho session is briefly absent (a restart,
     # or the gap before a reconnect re-registers), producing a duplicate row
     # built from the lazer view of their own state.
-    return nil unless (document["client"]? || "").to_s == "lazer"
+    tag = (document["client"]? || "").to_s
+    if tag != "lazer"
+      note(raw_key, "client tag is #{tag.inspect}, want \"lazer\"")
+      return nil
+    end
 
-    activity = document["Activity"]?
-    return nil unless activity.is_a?(Hash)
+    activity = document["Activity"]?.try(&.as_h?)
+    if activity.nil?
+      note(raw_key, "Activity is not an object")
+      return nil
+    end
 
     # The key being present *is* the online signal: speedforce deletes it when a
     # lazer user goes offline, so there is no status field to re-check here.
     user = UserRepo.fetch_one(user_id)
-    return nil if user.nil?
+    if user.nil?
+      note(raw_key, "no users row for #{user_id}")
+      return nil
+    end
 
-    mode = Gamemode.from_params(((activity["RulesetID"]? || 0).to_i % 4).to_u8, Mods::NOMOD)
+    mode = Gamemode.from_params((int_at(activity, "RulesetID") % 4).to_u8, Mods::NOMOD)
 
-    Online.new(
+    online = Online.new(
       user_id,
       user.name,
       country_code_for(user.country),
       user.priv,
       mode,
       action_for(activity),
-      (activity["BeatmapID"]? || 0).to_i,
+      int_at(activity, "BeatmapID"),
       title_for(activity),
       global_rank_for(user_id, mode)
     )
+    online
   end
 
-  def self.action_for(activity : Hash) : UInt8
-    kind = (activity["type"]? || "").to_s
+  # Parsing lives in its own method so `build` gets a plain `JSON::Any?` back
+  # rather than a `JSON::Any | Nil` union: a `begin/rescue` whose rescue path ends
+  # in a conditional `return` widens the whole expression to Nil, and every later
+  # `document[...]` then fails to compile.
+  private def self.parse(raw_key, stored) : JSON::Any?
+    JSON.parse(stored)
+  rescue ex
+    note(raw_key, "unparseable document: #{ex.message}")
+    nil
+  end
+
+  # Every skip is logged. A silently-empty result is exactly the failure mode
+  # that cost a round here: `country_code_for` once raised on a two-letter code,
+  # the rescue swallowed it, and lazer players were dropped over a flag nobody
+  # could see. Being skipped is normal (a bancho session owns that row); being
+  # skipped *unexpectedly* must be visible.
+  def self.note(raw_key, reason) : Nil
+    rlog "lazer presence: skipping #{raw_key} -- #{reason}", Ansi::LYELLOW
+  end
+
+  # JSON values are `JSON::Any`, so every read needs an explicit conversion
+  # rather than a bare `.to_i`, and a missing key has to read as a sane default
+  # rather than raising -- a presence document is not worth failing a stable
+  # session over.
+  private def self.int_at(activity : Hash(String, JSON::Any), key : String) : Int32
+    activity[key]?.try(&.as_i?).try(&.to_i32) || 0_i32
+  end
+
+  private def self.str_at(activity : Hash(String, JSON::Any), key : String) : String
+    activity[key]?.try(&.as_s?) || ""
+  end
+
+  def self.action_for(activity : Hash(String, JSON::Any)) : UInt8
+    kind = str_at(activity, "type")
 
     return ACTION_PLAYING if PLAYING_ACTIVITIES.includes?(kind)
     return ACTION_CHOOSING if CHOOSING_ACTIVITIES.includes?(kind)
@@ -179,14 +226,17 @@ module LazerPresence
     ACTION_IDLE
   end
 
-  def self.title_for(activity : Hash) : String
-    (activity["BeatmapDisplayTitle"]? || "").to_s[0, 80]
+  def self.title_for(activity : Hash(String, JSON::Any)) : String
+    str_at(activity, "BeatmapDisplayTitle")[0, 80]
   end
 
+  # `users.country` holds the two-letter code ("id", "us"), while bancho's
+  # USER_PRESENCE country byte wants the numeric id. `"id".to_u8` raises
+  # `Invalid UInt8`, which the rescue above swallowed into an empty list -- so
+  # lazer players were dropped over a flag nobody could see. `COUNTRY_CODES` is
+  # the same table the geolocation service uses.
   def self.country_code_for(code : String) : Int32
-    # `xx` is the "unknown" value the geolocation service assigns.
-    return 0 if code.nil? || code.empty? || code == "xx"
-    code.to_u8.to_i32
+    COUNTRY_CODES[code.downcase]? || COUNTRY_CODES["xx"]
   end
 
   def self.global_rank_for(user_id : Int32, mode : Gamemode) : Int32
