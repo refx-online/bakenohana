@@ -41,6 +41,13 @@ end
 
 class Slot
   property player : Player?
+  # Occupant that has no bancho session, so no `Player` to point at. Set only by
+  # `LazerRoomBridge` for a lazer player projected out of MPv2; 0 means none.
+  #
+  # The MPv1 wire carries nothing but this id -- the client resolves the name from
+  # its own lobby, where lazer users already appear via `lazer_presence.cr` --
+  # which is why this is an `Int32` and not a synthetic `Player`.
+  property remote_id : Int32
   property status : SlotStatus
   property team : MatchTeams
   property mods : Mods
@@ -49,6 +56,7 @@ class Slot
 
   def initialize
     @player = nil
+    @remote_id = 0
     @status = SlotStatus::Open
     @team = MatchTeams::Neutral
     @mods = Mods::NOMOD
@@ -56,12 +64,19 @@ class Slot
     @skipped = false
   end
 
+  # Whoever occupies this seat, session or not. `remote_id` is only consulted when
+  # there is no `Player`, so a seated session always wins.
+  def user_id : Int32
+    @player.try(&.id) || @remote_id
+  end
+
   def empty? : Bool
-    @player.nil?
+    @player.nil? && @remote_id == 0
   end
 
   def copy_from(other : Slot) : Nil
     @player = other.player
+    @remote_id = other.remote_id
     @status = other.status
     @team = other.team
     @mods = other.mods
@@ -69,6 +84,7 @@ class Slot
 
   def reset(new_status : SlotStatus = SlotStatus::Open) : Nil
     @player = nil
+    @remote_id = 0
     @status = new_status
     @team = MatchTeams::Neutral
     @mods = Mods::NOMOD
@@ -97,6 +113,13 @@ class Match
   property win_condition : MatchWinConditions
   property in_progress : Bool
   property seed : Int32
+  # True when this `Match` is a projection of a lazer room owned by speedforce.
+  #
+  # Not cosmetic: the owner is another process, so the usual assumptions about
+  # who may dispose a match or transfer its host do not hold. A locally created
+  # match empties out and is disposed by `leave_match`; a projected one must be
+  # left to its owner to retract, or it flickers back on the next publish.
+  property projected : Bool
 
   def initialize(
     @id : Int32,
@@ -116,6 +139,7 @@ class Match
   )
     @prev_map_id = 0
     @in_progress = false
+    @projected = false
     @slots = Array(Slot).new(16) { Slot.new }
   end
 
@@ -145,12 +169,26 @@ class Match
     nil
   end
 
+  # The host as a live session. Stays `Player?` on purpose: a projected lazer
+  # host has no session, and must not satisfy a `p.same?(m.host)` permission
+  # check on the stable side.
   def host : Player?
     @slots.each do |s|
       p = s.player
       return p if p && p.id == @host_id
     end
     nil
+  end
+
+  # The host id as the MPv1 wire needs it: the id of whichever seat holds
+  # `@host_id`, session or projected. `host` alone would write 0 for a projected
+  # room, making it look hostless in the lobby.
+  def host_user_id : Int32
+    @slots.each do |s|
+      id = s.user_id
+      return id if id != 0 && id == @host_id
+    end
+    0
   end
 
   def get_host_slot : Slot?

@@ -51,7 +51,11 @@ module Bakenohana
   # only covers players who came online afterwards.
   LAZER_ANNOUNCE_INTERVAL = 15
 
-  # Lazer user ids already announced to the connected clients.
+  # Lazer user ids already announced to the connected clients. Pruned to the
+  # currently-online set on every tick: an id kept after its user disconnects
+  # would suppress the announcement when they come back, so a lazer player who
+  # restarts their client would stay invisible to every stable session until
+  # bakenohana itself restarted.
   announced_lazer = Set(Int32).new
 
   spawn do
@@ -80,7 +84,12 @@ module Bakenohana
       sleep LAZER_ANNOUNCE_INTERVAL
 
       begin
-        LazerPresence.online.each do |user|
+        online = LazerPresence.online
+        online_ids = Set(Int32).new
+        online.each { |user| online_ids.add(user.id) }
+        announced_lazer & online_ids
+
+        online.each do |user|
           next if announced_lazer.includes?(user.id)
           announced_lazer.add(user.id)
 

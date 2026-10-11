@@ -186,18 +186,15 @@ module Packets
 
     m.slots.each do |s|
       if s.status.has_player?
-        # NOTE: desynced slot (flag set, no player) used to raise
+        # NOTE: a desynced slot (flag set, nobody seated) used to raise
         # NilAssertionError and abort the whole broadcast — send 0 instead.
-        if p = s.player
-          io.write_bytes p.id, IO::ByteFormat::LittleEndian
-        else
-          io.write_bytes 0, IO::ByteFormat::LittleEndian
-        end
+        # `user_id` covers both a real session and a projected lazer occupant,
+        # so a projected room reaches stable with its players in it.
+        io.write_bytes s.user_id, IO::ByteFormat::LittleEndian
       end
     end
 
-    h = m.host
-    io.write_bytes (h ? h.id : 0), IO::ByteFormat::LittleEndian
+    io.write_bytes m.host_user_id, IO::ByteFormat::LittleEndian
     io.write_byte m.mode.as_vn
     io.write_byte m.win_condition.value
     io.write_byte m.team_type.value

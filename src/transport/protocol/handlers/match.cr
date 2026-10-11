@@ -1,3 +1,4 @@
+require "../../../domain/match/lazer_room_bridge"
 require "../../../domain/match/match"
 require "../../../state/match_session"
 require "../../../state/player_session"
@@ -128,7 +129,14 @@ class JoinMatchPacket < BasePacket
       return
     end
 
-    p.join_match(match, @passwd)
+    unless p.join_match(match, @passwd)
+      return
+    end
+
+    # speedforce owns this room, so the seat is only real once MPv2 accepts it.
+    # If it refuses -- full, or the slot we showed was taken in between -- it
+    # republishes without this player, and the next projection drops the seat.
+    LazerRoomBridge.intent("join", match.id, p) if match.projected
   end
 end
 
@@ -169,6 +177,7 @@ class MatchReadyPacket < MatchHandlerBase
     return unless slot
 
     slot.status = SlotStatus::Ready
+    LazerRoomBridge.intent("ready", m.id, p, ready: true) if m.projected
     m.enqueue_state
   end
 end
@@ -179,6 +188,7 @@ class MatchNotReadyPacket < MatchHandlerBase
     return unless slot
 
     slot.status = SlotStatus::NotReady
+    LazerRoomBridge.intent("ready", m.id, p, ready: false) if m.projected
     m.enqueue_state
   end
 end

@@ -168,8 +168,21 @@ class JoinChannelPacket < BasePacket
     return if ["#highlight", "#userlog"].includes?(@name)
 
     channel = ChannelSession[@name]
-    if channel.nil? || !p.join_channel(channel)
-      rlog "#{p.username} failed to join #{@name}.", Ansi::LYELLOW
+
+    # `join_channel` refuses for three unrelated reasons and the single combined
+    # message collapsed all of them into one line, so "failed to join #lobby"
+    # said nothing about which. Each is a different bug:
+    #   nil lookup          -> the channel is not in the session at all
+    #   already a member    -> benign, the client re-sent on re-entry
+    #   privilege refusal   -> the account cannot read the channel
+    if channel.nil?
+      rlog "#{p.username} failed to join #{@name}: not loaded (session has #{ChannelSession.size}: #{ChannelSession}).",
+        Ansi::LYELLOW
+    elsif channel.includes?(p)
+      rlog "#{p.username} failed to join #{@name}: already a member.", Ansi::LYELLOW
+    elsif !p.join_channel(channel)
+      rlog "#{p.username} failed to join #{@name}: priv #{p.priv.value} lacks read_priv #{channel.read_priv.value}.",
+        Ansi::LYELLOW
     end
   end
 end

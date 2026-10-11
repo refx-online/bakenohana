@@ -1,3 +1,4 @@
+require "../domain/match/lazer_room_bridge"
 require "../infrastructure/redis/redis_client"
 require "../state/player_session"
 require "../persistence/repositories/stats"
@@ -5,12 +6,17 @@ require "../transport/protocol/packets"
 require "../infrastructure/logging/logger"
 
 module PubSub
-  CHANNELS = [
+  # A tuple, not an Array, because `subscribe` is varargs and Crystal only
+  # splats tuples. Previously this was an Array used solely for the log line
+  # while the subscribe call spelled the four channels out again, so adding a
+  # channel to one and not the other was a silent no-op.
+  CHANNELS = {
     "refx:notify",
     "refx:restrict",
     "refx:refresh_stats",
     "refx:recalculate",
-  ]
+    LazerRoomBridge::CHANNEL,
+  }
 
   def self.start
     spawn do
@@ -21,7 +27,7 @@ module PubSub
       # stats handling until the next process restart.
       loop do
         begin
-          RedisService.sub.subscribe("refx:notify", "refx:restrict", "refx:refresh_stats", "refx:recalculate") do |on|
+          RedisService.sub.subscribe(*CHANNELS) do |on|
             on.message do |channel, payload|
               rlog "[pubsub] #{channel}: #{payload}", Ansi::LBLUE
               handle(channel, payload)
@@ -39,6 +45,10 @@ module PubSub
 
   private def self.handle(channel : String, payload : String) : Nil
     case channel
+    when LazerRoomBridge::CHANNEL
+      # payload: a JSON room projection from speedforce
+      LazerRoomBridge.handle(payload)
+
     when "refx:notify"
       # payload: "user_id|message"
       parts = payload.split("|", 2)

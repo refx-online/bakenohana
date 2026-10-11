@@ -12,6 +12,7 @@ require "../../persistence/repositories/stats"
 require "../../infrastructure/redis/redis_client"
 require "../../infrastructure/logging/logger"
 require "../match/presence_bridge"
+require "../match/lazer_room_bridge"
 require "../../state/match_session"
 
 class Player
@@ -527,6 +528,18 @@ class Player
     slot.reset(new_status)
 
     leave_channel(m.chat)
+
+    if m.projected
+      # speedforce owns this room. Disposing it here would retract the `Match`
+      # from every stable client only for it to reappear on the next publish --
+      # and its `leave` intent has to go out first, or MPv2 keeps the player in
+      # a room stable no longer shows. Host transfer is skipped for the same
+      # reason: the host is a lazer session with no stable counterpart.
+      LazerRoomBridge.intent("leave", m.id, self)
+      m.enqueue_state
+      @match = nil
+      return
+    end
 
     if m.slots.all?(&.empty?)
       rlog "Match #{m.name} (#{m.id}) is now empty, disposing."
