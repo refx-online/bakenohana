@@ -96,6 +96,7 @@ module LazerPresence
   # server.
   def self.online : Array(Online)
     found = [] of Online?
+    seen = [] of String
     r = RedisService.redis
     cursor = "0"
 
@@ -107,7 +108,11 @@ module LazerPresence
       reply = r.scan(cursor, match: PresenceBridge.key_pattern, count: 200)
 
       keys = reply[1]
-      keys.each { |raw| found << build(r, raw) if raw.is_a?(String) } if keys.is_a?(Array)
+      keys.each do |raw|
+        next unless raw.is_a?(String)
+        seen << raw
+        found << build(r, raw)
+      end if keys.is_a?(Array)
 
       next_cursor = reply[0]
       cursor = next_cursor.is_a?(String) ? next_cursor : "0"
@@ -117,6 +122,10 @@ module LazerPresence
     resolved = found.compact
     if resolved.empty?
       rlog "lazer presence: no lazer players online (no #{PresenceBridge.key_pattern} keys resolved)", Ansi::LYELLOW
+      # Say what was actually scanned. Without this, "no keys resolved" reads
+      # identically whether redis had nothing under the pattern or every key
+      # was dropped during parsing.
+      rlog "lazer presence: scan returned #{found.size} key(s): #{seen.join(", ")}", Ansi::LYELLOW
     end
     resolved
   rescue ex
@@ -127,7 +136,12 @@ module LazerPresence
 
   private def self.build(r, raw_key : String) : Online?
     user_id = raw_key.split(":").last.to_i?
-    return nil if user_id.nil?
+    if user_id.nil?
+      # This used to return nil silently, which made an id-parsing failure
+      # indistinguishable from the user simply not being online.
+      note(raw_key, "no trailing numeric user id")
+      return nil
+    end
 
     # A stable session for the same account owns that row: PresenceBridge is
     # already writing it and PlayerSession is authoritative for it.
@@ -137,7 +151,13 @@ module LazerPresence
     end
 
     stored = r.get(raw_key)
-    return nil if stored.nil? || stored.empty?
+    if stored.nil? || stored.empty?
+      # Also used to be silent. Worth logging loudly: every other rejection
+      # below reports itself, so a key that gets this far and vanishes was
+      # previously invisible and looked exactly like "user is offline".
+      note(raw_key, "redis GET returned #{stored.nil? ? "nil" : "an empty string"}")
+      return nil
+    end
 
     document = parse(raw_key, stored)
     if document.nil?
