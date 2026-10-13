@@ -154,6 +154,15 @@ class MatchChangeSlotPacket < MatchHandlerBase
   end
 
   def handle_match(p : Player, m : Match)
+    # A projected match mirrors an MPv2 room, and MPv2 has no move-to-slot method
+    # to forward this to. Letting it apply locally moves the stable client only,
+    # so the two sides disagree about where the player sits and they render in
+    # both seats. Refuse rather than half-apply: the lazer room stays the truth.
+    if m.projected
+      rlog "#{p.username} tried to change slot in projected match #{m.id}; ignoring -- MPv2 has no seat move.", Ansi::LYELLOW
+      return
+    end
+
     return unless 0 <= @slot_id < 16
 
     if m.slots[@slot_id].status != SlotStatus::Open
