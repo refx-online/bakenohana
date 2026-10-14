@@ -12,6 +12,27 @@ abstract class MatchHandlerBase < BasePacket
   end
 
   abstract def handle_match(p : Player, m : Match)
+
+  # A projected match is a mirror of a lazer MPv2 room: MPv2 owns the real
+  # state and pushes it back down, so anything applied here without being
+  # forwarded is immediately contradicted by the next projection.
+  #
+  # The bridge forwards exactly three intents -- join, ready and leave -- so
+  # those handlers apply locally *and* publish an intent and are correct.
+  # Everything else either has no MPv2 equivalent to forward to (seat move,
+  # free mods, team, skipping the current map) or only exists as an MPv1
+  # concept, so it is refused rather than silently desynced.
+  #
+  # Host-gated actions need no check here: `Match#host` is nil for a projected
+  # lazer host, so the `p.same?(m.host)` every one of them starts with already
+  # rejects stable players. That covers settings, lock, start, password change
+  # and transfer host.
+  protected def refuse_if_projected(m : Match, p : Player, what : String) : Bool
+    return false unless m.projected
+
+    rlog "#{p.username} tried to change #{what} in projected match #{m.id}; MPv2 cannot express it.", Ansi::LYELLOW
+    true
+  end
 end
 
 class JoinLobbyPacket < BasePacket
@@ -154,14 +175,7 @@ class MatchChangeSlotPacket < MatchHandlerBase
   end
 
   def handle_match(p : Player, m : Match)
-    # A projected match mirrors an MPv2 room, and MPv2 has no move-to-slot method
-    # to forward this to. Letting it apply locally moves the stable client only,
-    # so the two sides disagree about where the player sits and they render in
-    # both seats. Refuse rather than half-apply: the lazer room stays the truth.
-    if m.projected
-      rlog "#{p.username} tried to change slot in projected match #{m.id}; ignoring -- MPv2 has no seat move.", Ansi::LYELLOW
-      return
-    end
+    return if refuse_if_projected(m, p, "slot")
 
     return unless 0 <= @slot_id < 16
 
@@ -316,6 +330,7 @@ end
 
 class MatchCompletePacket < MatchHandlerBase
   def handle_match(p : Player, m : Match)
+    return if refuse_if_projected(m, p, "completion")
     slot = m.get_slot(p)
     return unless slot
 
@@ -342,6 +357,7 @@ class MatchChangeModsPacket < MatchHandlerBase
   end
 
   def handle_match(p : Player, m : Match)
+    return if refuse_if_projected(m, p, "their mods")
 
     if m.freemods
       if p.same?(m.host)
@@ -402,6 +418,7 @@ end
 
 class MatchSkipRequestPacket < MatchHandlerBase
   def handle_match(p : Player, m : Match)
+    return if refuse_if_projected(m, p, "the skip")
     slot = m.get_slot(p)
     return unless slot
 
@@ -476,6 +493,7 @@ end
 
 class MatchChangeTeamPacket < MatchHandlerBase
   def handle_match(p : Player, m : Match)
+    return if refuse_if_projected(m, p, "their team")
     slot = m.get_slot(p)
     return unless slot
 

@@ -3,6 +3,8 @@ require "json"
 require "../src/domain/match/lazer_room_bridge"
 require "../src/state/match_session"
 require "../src/transport/protocol/packets"
+require "../src/transport/protocol/reader"
+require "../src/transport/protocol/handlers/match"
 require "../src/domain/match/match"
 
 ROOM_ID = 4242
@@ -220,5 +222,106 @@ describe LazerRoomBridge do
     # from every stable client until the next publish.
     MatchSession.count.should eq 1
     match.slots[index].should be_empty
+  end
+end
+
+# Seat a stable player in slot 3 of a projected room, so each packet under
+# test has a real session attached. MPv2 owns the room, so applying a
+# locally-only mutation would leave the two clients describing different rooms.
+def seat_stable_player(match : Match) : Player
+  player = test_player(7, "stable7")
+  match.slots[3].player = player
+  match.slots[3].status = SlotStatus::NotReady
+  player.match = match
+  player
+end
+
+# A reader over a single framed packet, so each test drives a real handler
+# through `handle` rather than poking at state.
+# Handlers with a custom `initialize` read straight off the reader, which
+# reads from offset 0 -- so this wraps the packet *payload*, not a framed
+# packet. Handlers with no `initialize` ignore the reader entirely.
+def payload_reader(payload : Bytes = Bytes.empty) : BanchoPacketReader
+  BanchoPacketReader.new(payload, PACKET_MAP)
+end
+
+def four_slot_room : Match
+  project(room_json(name: "stable mutations", host_id: 42, slots: [{42, true}, {43, false}, {44, false}, {7, false}]))
+  find_match_by_name("stable mutations")
+end
+
+describe "stable mutations in a projected match" do
+  after_each do
+    project(room_json(closed: true))
+  end
+
+  it "refuses a seat move and leaves the player where they were" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+    before = match.slots.map(&.user_id)
+
+    # Slot 5 is open and empty. Slot 0 would not do: it holds the lazer host, so
+    # the handler bails on `status != Open` before it ever moves anyone, and the
+    # test would pass whether or not the projected guard exists.
+    MatchChangeSlotPacket.new(payload_reader(Bytes[5, 0, 0, 0])).handle(player)
+
+    match.slots.map(&.user_id).should eq before
+  end
+
+  it "refuses a team change and leaves the team alone" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+    before = match.slots[3].team
+
+    MatchChangeTeamPacket.new(BanchoPacketReader.new(Bytes.empty, PACKET_MAP)).handle(player)
+
+    match.slots[3].team.should eq before
+  end
+
+  it "refuses a mods change and leaves the mods alone" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+    before = match.slots[3].mods
+
+    # payload is an i32 mod bitmask: HD (8) | HR (64)
+    MatchChangeModsPacket.new(payload_reader(Bytes[72, 0, 0, 0])).handle(player)
+
+    match.slots[3].mods.should eq before
+  end
+
+  it "refuses a skip vote and does not broadcast the skip" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+    watcher = test_player(8, "stable8")
+    match.chat.append(watcher)
+
+    MatchSkipRequestPacket.new(BanchoPacketReader.new(Bytes.empty, PACKET_MAP)).handle(player)
+
+    match.slots[3].skipped.should be_false
+    # The handler enqueues a state push either way, so an empty queue means
+    # neither the skip notice nor a state packet went out.
+    watcher.dequeue.size.should eq 0
+  end
+
+  it "refuses completion and does not announce the match as complete" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+    watcher = test_player(8, "stable8")
+    match.chat.append(watcher)
+
+    MatchCompletePacket.new(payload_reader).handle(player)
+
+    match.slots[3].status.should_not eq SlotStatus::Complete
+    # Nothing may reach the room: no MATCH_COMPLETE, and no state push either.
+    watcher.dequeue.size.should eq 0
+  end
+
+  it "still applies ready, which MPv2 does support" do
+    match = four_slot_room
+    player = seat_stable_player(match)
+
+    MatchReadyPacket.new(BanchoPacketReader.new(Bytes.empty, PACKET_MAP)).handle(player)
+
+    match.slots[3].status.should eq SlotStatus::Ready
   end
 end
